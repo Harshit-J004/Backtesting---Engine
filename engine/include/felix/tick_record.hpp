@@ -1,20 +1,22 @@
 #pragma once
-
 #include <cstdint>
 
 namespace felix {
 
-    #pragma pack(push, 1)
-    struct TickRecord {
-        uint64_t timestamp; // Nanoseconds
-        uint64_t symbol_id; 
-        double price;
-        double volume;
-        uint8_t flags;      // 1 = Trade, 0 = Quote
-        uint8_t _pad[7];    // Align to 32 bytes
-    };
-    #pragma pack(pop)
+#pragma pack(push, 1)
+struct TickRecord {
+    uint64_t timestamp;     // 8 bytes
+    uint32_t symbol_id;     // 4 bytes
+    float price;            // 4 bytes
+    float bid;              // 4 bytes
+    float ask;              // 4 bytes
+    float bid_size;         // 4 bytes
+    float ask_size;         // 4 bytes
+    uint32_t volume;        // 4 bytes
+    uint32_t padding;       // 4 bytes
+};
+#pragma pack(pop)
 
-    static_assert(sizeof(TickRecord) == 40, "TickRecord must be 40 bytes");
+static_assert(sizeof(TickRecord) == 40, "TickRecord must be 40 bytes");
 
-}
+} // namespace felix

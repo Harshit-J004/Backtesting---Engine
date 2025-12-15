@@ -1,46 +1,63 @@
+#include "felix/matching.hpp"
 #include <iostream>
 #include <cassert>
-#include "felix/matching.hpp"
 
 using namespace felix;
 
 int main() {
-    std::cout << "Testing MatchingEngine..." << std::endl;
-
-    MatchingEngine engine;
+    // Create matching engine with slippage
+    SlippageConfig slippage;
+    slippage.fixed_bps = 5.0;
+    MatchingEngine engine(slippage);
     
-    bool filled = false;
-    engine.set_fill_callback([&](const Fill& fill) {
-        std::cout << "Filled: Order " << fill.order_id 
-                  << " Price " << fill.price 
-                  << " Qty " << fill.volume << std::endl;
-        filled = true;
-    });
-
-    // 1. Submit Limit BUY @ 100
-    Order o;
-    o.symbol_id = 1;
-    o.side = Side::BUY;
-    o.price = 100.0;
-    o.volume = 10;
+    // Configure latency
+    LatencyConfig latency;
+    latency.strategy_latency_ns = 1000;
+    latency.engine_latency_ns = 500;
+    engine.set_latency_config(latency);
     
-    uint64_t oid = engine.submit_order(o);
-    assert(oid > 0);
-
-    // 2. Tick @ 101 (Should NOT fill)
-    TickRecord t1;
-    t1.symbol_id = 1;
-    t1.price = 101.0;
-    engine.process_tick(t1);
-    assert(!filled);
-
-    // 3. Tick @ 99 (Should FILL)
-    TickRecord t2;
-    t2.symbol_id = 1;
-    t2.price = 99.0;
-    engine.process_tick(t2);
-    assert(filled);
-
-    std::cout << "Example Limit Order Test Passed!" << std::endl;
+    // Create a market tick
+    TickRecord tick;
+    tick.timestamp = 1000000000ULL;
+    tick.symbol_id = 1;
+    tick.price = 100.0;
+    tick.bid = 99.99;
+    tick.ask = 100.01;
+    tick.bid_size = 100;
+    tick.ask_size = 100;
+    tick.volume = 1000;
+    
+    // Update market state
+    engine.update_market_state(tick);
+    
+    // Submit a market buy order
+    Order order;
+    order.symbol_id = 1;
+    order.side = Side::BUY;
+    order.order_type = OrderType::MARKET;
+    order.size = 10;
+    order.timestamp = tick.timestamp;
+    
+    uint64_t order_id = engine.submit_order(order);
+    assert(order_id > 0);
+    assert(engine.pending_order_count() == 1);
+    
+    // Process orders (latency not elapsed yet)
+    std::vector<Fill> fills = engine.process_pending_orders(tick.timestamp);
+    assert(fills.empty());  // Order not yet active due to latency
+    
+    // Advance time past latency
+    uint64_t later_time = tick.timestamp + latency.strategy_latency_ns + latency.engine_latency_ns + 1;
+    fills = engine.process_pending_orders(later_time);
+    
+    assert(fills.size() == 1);
+    assert(fills[0].order_id == order_id);
+    assert(fills[0].side == Side::BUY);
+    assert(fills[0].volume == 10);
+    assert(fills[0].slippage > 0);  // Slippage applied
+    
+    std::cout << "Fill price: " << fills[0].price << " (with " << fills[0].slippage << " bps slippage)" << std::endl;
+    
+    std::cout << "All MatchingEngine tests passed!" << std::endl;
     return 0;
 }

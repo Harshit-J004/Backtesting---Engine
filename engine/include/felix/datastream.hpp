@@ -1,26 +1,36 @@
 #pragma once
 
-#include <string>
+#include "felix/tick_record.hpp"
 #include <vector>
-#include <memory>
-#include <span>
+#include <string>
 
 namespace felix {
 
-    struct TickRecord; // Forward declaration
+/**
+ * DataStream - Section 4.1
+ * Memory-mapped binary tick data access
+ */
+class DataStream {
+public:
+    DataStream();
+    ~DataStream();
+    
+    // Load binary tick data
+    bool load(const std::string& filepath);
+    
+    // Stream interface
+    size_t size() const;
+    bool has_next() const;
+    const TickRecord& next();
+    const TickRecord& peek() const;
+    void reset();
+    
+    // Current position
+    size_t current_index() const { return current_index_; }
 
-    class DataStream {
-    public:
-        DataStream();
-        ~DataStream();
+private:
+    std::vector<TickRecord> ticks_;
+    size_t current_index_;
+};
 
-        void load(const std::string& file_path);
-        bool next(TickRecord& out_tick);
-        void reset();
-
-    private:
-        struct Impl;
-        std::unique_ptr<Impl> pImpl;
-    };
-
-}
+} // namespace felix

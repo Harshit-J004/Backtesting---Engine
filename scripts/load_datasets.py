@@ -1,6 +1,8 @@
+#!/usr/bin/env python3
+# filepath: /home/joelb23/BacktestingEngine/scripts/load_datasets.py
 """
-Felix Backtester - Dataset Loader
-Unified loader for local NSE datasets: Futures, Spot, Stocks, and FII/DII data.
+Data Loading Script - Section 4.1
+Converts CSV/Parquet data to binary TickRecord format for C++ engine.
 """
 
 import os
@@ -10,15 +12,13 @@ import argparse
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, Dict
+import numpy as np
 
-# Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
 DATASETS_DIR = PROJECT_ROOT / "datasets"
 OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
 
-
-# Dataset categories and their paths
 DATASET_CATEGORIES = {
     "future": DATASETS_DIR / "Future",
     "spot": DATASETS_DIR / "Spot",
@@ -26,67 +26,48 @@ DATASET_CATEGORIES = {
     "fii_dii": DATASETS_DIR / "fii_dii_participant_data.csv",
 }
 
+# Binary format: Q(8) + I(4) + f(4)*5 + I(4)*2 = 40 bytes
+PACK_FORMAT = '<QIfffffII'
+RECORD_SIZE = struct.calcsize(PACK_FORMAT)
+
 
 def get_dataset_catalog() -> Dict[str, Dict]:
-    """
-    Returns a catalog of all available datasets with metadata.
-    """
     catalog = {}
     
-    # Scan Future folder
     future_dir = DATASET_CATEGORIES["future"]
     if future_dir.exists():
         for f in future_dir.glob("*.csv"):
             name = f.stem.lower().replace("_data", "").replace("_futures", "_fut")
-            catalog[name] = {
-                "path": str(f),
-                "category": "future",
-                "display_name": f.stem,
-            }
+            catalog[name] = {"path": str(f), "category": "future", "display_name": f.stem}
     
-    # Scan Spot folder
     spot_dir = DATASET_CATEGORIES["spot"]
     if spot_dir.exists():
         for f in spot_dir.glob("*.csv"):
             name = f.stem.lower().replace("_data", "") + "_spot"
-            catalog[name] = {
-                "path": str(f),
-                "category": "spot",
-                "display_name": f.stem,
-            }
+            catalog[name] = {"path": str(f), "category": "spot", "display_name": f.stem}
     
-    # Scan NSE_Stocks folder
     stocks_dir = DATASET_CATEGORIES["stocks"]
     if stocks_dir.exists():
         for f in stocks_dir.glob("*.csv"):
             name = f.stem.lower().replace("_data", "")
-            catalog[name] = {
-                "path": str(f),
-                "category": "stocks",
-                "display_name": f.stem,
-            }
+            catalog[name] = {"path": str(f), "category": "stocks", "display_name": f.stem}
     
-    # FII/DII data
-    fii_dii_path = DATASET_CATEGORIES["fii_dii"]
-    if fii_dii_path.exists():
-        catalog["fii_dii"] = {
-            "path": str(fii_dii_path),
-            "category": "fii_dii",
-            "display_name": "FII/DII Participant Data",
-        }
+    raw_dir = PROJECT_ROOT / "data" / "raw"
+    if raw_dir.exists():
+        for f in raw_dir.glob("*.csv"):
+            name = f.stem.lower()
+            if name not in catalog:
+                catalog[name] = {"path": str(f), "category": "raw", "display_name": f.stem}
     
     return catalog
 
 
 def list_datasets() -> None:
-    """Print all available datasets grouped by category."""
     catalog = get_dataset_catalog()
-    
     print("\n" + "=" * 60)
     print("FELIX BACKTESTER - AVAILABLE DATASETS")
     print("=" * 60)
     
-    # Group by category
     categories = {}
     for name, info in catalog.items():
         cat = info["category"]
@@ -94,288 +75,170 @@ def list_datasets() -> None:
             categories[cat] = []
         categories[cat].append((name, info))
     
-    category_labels = {
-        "future": "FUTURES",
-        "spot": "SPOT INDICES",
-        "stocks": "NSE STOCKS",
-        "fii_dii": "FII/DII DATA",
-    }
-    
-    for cat, label in category_labels.items():
+    for cat, label in [("future", "FUTURES"), ("spot", "SPOT"), ("stocks", "STOCKS"), ("raw", "RAW")]:
         if cat in categories:
-            print(f"\n{label}")
-            print("-" * 40)
+            print(f"\n{label}\n" + "-" * 40)
             for name, info in sorted(categories[cat]):
                 print(f"  • {name:30s} [{info['display_name']}]")
     
-    print("\n" + "=" * 60)
-    print(f"Total datasets: {len(catalog)}")
-    print("=" * 60 + "\n")
+    print(f"\n{'=' * 60}\nTotal: {len(catalog)}\n{'=' * 60}\n")
 
 
-def load_ohlcv(
-    dataset_name: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    limit: Optional[int] = None,
-) -> pd.DataFrame:
-    """
-    Load OHLCV data from a dataset.
-    
-    Args:
-        dataset_name: Name of the dataset (from catalog)
-        start_date: Filter start date (YYYY-MM-DD)
-        end_date: Filter end date (YYYY-MM-DD)
-        limit: Limit number of rows (for testing)
-    
-    Returns:
-        DataFrame with normalized columns: datetime, open, high, low, close, volume, oi
-    """
+def load_ohlcv(dataset_name: str, start_date: Optional[str] = None, 
+               end_date: Optional[str] = None, limit: Optional[int] = None) -> pd.DataFrame:
     catalog = get_dataset_catalog()
-    
     if dataset_name not in catalog:
-        available = list(catalog.keys())
-        raise ValueError(f"Dataset '{dataset_name}' not found. Available: {available[:10]}...")
+        return None
     
     info = catalog[dataset_name]
-    file_path = info["path"]
-    category = info["category"]
+    print(f"Loading {dataset_name} from {info['category']}...")
+    df = pd.read_csv(info["path"], nrows=limit)
+    df.columns = df.columns.str.lower().str.strip()
     
-    print(f"Loading {dataset_name} from {category}...")
+    if info["category"] == "future" and "date" in df.columns and "time" in df.columns:
+        df["datetime"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%y %H:%M:%S", errors="coerce")
+    elif "datetime" in df.columns:
+        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
+    elif "timestamp" in df.columns:
+        df["datetime"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    elif "date" in df.columns:
+        df["datetime"] = pd.to_datetime(df["date"], errors="coerce")
     
-    # Load based on category (liek on different formats)
-    if category == "future":
-        # Future format: date,time,open,high,low,close,volume,oi
-        df = pd.read_csv(file_path, nrows=limit)
-        # Parse date and time into datetime
-        df["datetime"] = pd.to_datetime(
-            df["date"] + " " + df["time"],
-            format="%d/%m/%y %H:%M:%S",
-            errors="coerce"
-        )
-        df = df[["datetime", "open", "high", "low", "close", "volume", "oi"]]
-        
-    elif category == "spot":
-        # Spot format: datetime (with timezone),open,high,low,close,volume,oi
-        df = pd.read_csv(file_path, nrows=limit)
-        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-        # Remove timezone info for consistency
-        if df["datetime"].dt.tz is not None:
-            df["datetime"] = df["datetime"].dt.tz_localize(None)
-        df = df[["datetime", "open", "high", "low", "close", "volume", "oi"]]
-        
-    elif category == "stocks":
-        # Stocks format: datetime,date,time,open,high,low,close,volume,oi
-        df = pd.read_csv(file_path, nrows=limit)
-        df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-        df = df[["datetime", "open", "high", "low", "close", "volume", "oi"]]
-        
+    if "datetime" in df.columns and df["datetime"].dt.tz is not None:
+        df["datetime"] = df["datetime"].dt.tz_localize(None)
+    
+    for col in ["close", "price", "last", "ltp"]:
+        if col in df.columns:
+            df["close"] = df[col]
+            break
+    
+    for col in ["open", "high", "low"]:
+        if col not in df.columns and "close" in df.columns:
+            df[col] = df["close"]
+    if "volume" not in df.columns:
+        df["volume"] = 1000
+    
+    if "datetime" in df.columns:
+        df = df.dropna(subset=["datetime"])
+        if start_date:
+            df = df[df["datetime"] >= pd.to_datetime(start_date)]
+        if end_date:
+            df = df[df["datetime"] <= pd.to_datetime(end_date)]
+        df = df.sort_values("datetime").reset_index(drop=True)
+        print(f"  Loaded {len(df):,} records from {df['datetime'].min()} to {df['datetime'].max()}")
     else:
-        raise ValueError(f"Unsupported category: {category}")
-    
-    # Drop rows with invalid datetime
-    df = df.dropna(subset=["datetime"])
-    
-    # Apply date filters
-    if start_date:
-        start = pd.to_datetime(start_date)
-        df = df[df["datetime"] >= start]
-    
-    if end_date:
-        end = pd.to_datetime(end_date)
-        df = df[df["datetime"] <= end]
-    
-    # Sort by datetime
-    df = df.sort_values("datetime").reset_index(drop=True)
-    
-    print(f"  Loaded {len(df):,} records from {df['datetime'].min()} to {df['datetime'].max()}")
+        print(f"  Loaded {len(df):,} records")
     
     return df
 
 
-def load_fii_dii(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    client_type: Optional[str] = None,
-) -> pd.DataFrame:
-    """
-    Load FII/DII participant data.
+def create_sample_data(output_path: str, num_ticks: int = 98280) -> None:
+    print(f"Creating sample tick data... Format: {PACK_FORMAT}, size: {RECORD_SIZE} bytes")
     
-    Args:
-        start_date: Filter start date (YYYY-MM-DD)
-        end_date: Filter end date (YYYY-MM-DD)
-        client_type: Filter by client type (FII, DII, Client, Pro, TOTAL)
+    base_timestamp = int(datetime(2023, 1, 1).timestamp() * 1e9)
+    base_price = 2500.0
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    np.random.seed(42)
     
-    Returns:
-        DataFrame with FII/DII data
-    """
-    file_path = DATASET_CATEGORIES["fii_dii"]
+    with open(output_path, 'wb') as f:
+        price = base_price
+        for i in range(num_ticks):
+            price += np.random.randn() * 2.0
+            price = max(price, 100.0)
+            
+            record = struct.pack(PACK_FORMAT,
+                int(base_timestamp + i * 60_000_000_000),
+                1,
+                float(price),
+                float(price - 0.05),
+                float(price + 0.05),
+                float(np.random.randint(100, 1000)),
+                float(np.random.randint(100, 1000)),
+                int(np.random.randint(1000, 10000)),
+                0
+            )
+            f.write(record)
     
-    if not file_path.exists():
-        raise FileNotFoundError(f"FII/DII data not found at {file_path}")
-    
-    print("Loading FII/DII participant data...")
-    
-    # Read CSV
-    df = pd.read_csv(file_path)
-    
-    # Parse date (format: DD/MM/YY)
-    df["Date"] = pd.to_datetime(df["Date"], format="%d/%m/%y", errors="coerce")
-    
-    # Drop rows with invalid dates
-    df = df.dropna(subset=["Date"])
-    
-    # Apply filters
-    if start_date:
-        start = pd.to_datetime(start_date)
-        df = df[df["Date"] >= start]
-    
-    if end_date:
-        end = pd.to_datetime(end_date)
-        df = df[df["Date"] <= end]
-    
-    if client_type:
-        df = df[df["Client_Type"] == client_type]
-    
-    # Sort by date
-    df = df.sort_values("Date").reset_index(drop=True)
-    
-    print(f"  Loaded {len(df):,} records from {df['Date'].min()} to {df['Date'].max()}")
-    
-    return df
+    file_size = os.path.getsize(output_path)
+    print(f"Created {file_size // RECORD_SIZE:,} ticks in {output_path} ({file_size:,} bytes)")
 
 
 def convert_to_binary(df: pd.DataFrame, symbol_id: int, output_file: str) -> None:
-    """
-    Convert OHLCV DataFrame to binary format for C++ engine.
+    print(f"Converting {len(df):,} records... Format: {PACK_FORMAT}, size: {RECORD_SIZE} bytes")
     
-    Binary format per record (TickRecord):
-    - timestamp: uint64 (nanoseconds since epoch)
-    - symbol_id: uint64
-    - price: double (close price used)
-    - volume: double
-    - flags: uint8 (1 = trade)
-    - pad: 7 bytes
-    
-    Total: 41 bytes per record (with padding)
-    Format string: <QQddB7x
-    """
-    print(f"Converting {len(df):,} records to binary format...")
-    
-    # Ensure output directory exists
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
     with open(output_file, "wb") as f:
         for _, row in df.iterrows():
-            # Convert timestamp to nanoseconds
-            ts = int(row["datetime"].timestamp() * 1e9)
+            ts = int(row["datetime"].timestamp() * 1e9) if "datetime" in row and pd.notna(row["datetime"]) else 0
+            price = float(row.get("close", row.get("price", 0)))
             
-            price = float(row["close"])
-            volume = float(row["volume"])
-            flags = 1  # Trade flag
-            
-            # Pack binary data
-            packed = struct.pack("<QQddB7x", ts, symbol_id, price, volume, flags)
-            f.write(packed)
+            record = struct.pack(PACK_FORMAT,
+                int(ts),
+                int(symbol_id),
+                float(price),
+                float(row.get("bid", price - 0.05)),
+                float(row.get("ask", price + 0.05)),
+                float(row.get("bid_size", 100)),
+                float(row.get("ask_size", 100)),
+                int(row.get("volume", 1000)),
+                0
+            )
+            f.write(record)
     
     file_size = output_path.stat().st_size
-    print(f"  ✓ Saved to {output_file} ({file_size:,} bytes)")
+    print(f"  ✓ Saved {file_size // RECORD_SIZE:,} records to {output_file} ({file_size:,} bytes)")
 
 
-def get_dataset_info(dataset_name: str) -> Dict:
-    """Get detailed info about a dataset including row count and date range."""
-    catalog = get_dataset_catalog()
+def load_reliance_data(output_path: str) -> None:
+    df = load_ohlcv("reliance")
+    if df is None or len(df) == 0:
+        for name in ["RELIANCE", "reliance_data"]:
+            df = load_ohlcv(name.lower())
+            if df is not None and len(df) > 0:
+                break
     
-    if dataset_name not in catalog:
-        raise ValueError(f"Dataset '{dataset_name}' not found")
+    if df is None or len(df) == 0:
+        print("No data file found. Creating sample data...")
+        create_sample_data(output_path)
+        return
     
-    info = catalog[dataset_name].copy()
-    
-    # Load sample to get metadata
-    try:
-        if info["category"] == "fii_dii":
-            df = load_fii_dii()
-            info["rows"] = len(df)
-            info["start_date"] = str(df["Date"].min())
-            info["end_date"] = str(df["Date"].max())
-            info["columns"] = list(df.columns)
-        else:
-            df = load_ohlcv(dataset_name, limit=None)
-            info["rows"] = len(df)
-            info["start_date"] = str(df["datetime"].min())
-            info["end_date"] = str(df["datetime"].max())
-            info["columns"] = list(df.columns)
-    except Exception as e:
-        info["error"] = str(e)
-    
-    return info
+    convert_to_binary(df, symbol_id=1, output_file=output_path)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Felix Backtester - Dataset Loader",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python load_datasets.py --list
-  python load_datasets.py --dataset nifty50_spot --output data/processed/nifty50.bin
-  python load_datasets.py --dataset reliance --start 2023-01-01 --end 2023-12-31
-  python load_datasets.py --info reliance
-        """
-    )
-    
-    parser.add_argument("--list", "-l", action="store_true", help="List all available datasets")
-    parser.add_argument("--dataset", "-d", type=str, help="Dataset name to load")
-    parser.add_argument("--output", "-o", type=str, help="Output binary file path")
+    parser = argparse.ArgumentParser(description="Felix Backtester - Dataset Loader")
+    parser.add_argument("--list", "-l", action="store_true", help="List datasets")
+    parser.add_argument("--dataset", "-d", type=str, help="Dataset name")
+    parser.add_argument("--output", "-o", type=str, default="data/processed/reliance.bin")
     parser.add_argument("--start", type=str, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, help="End date (YYYY-MM-DD)")
-    parser.add_argument("--symbol-id", type=int, default=1, help="Symbol ID for binary format")
-    parser.add_argument("--info", type=str, help="Show detailed info for a dataset")
-    parser.add_argument("--preview", type=int, help="Preview N rows of data")
-    
+    parser.add_argument("--symbol-id", type=int, default=1)
+    parser.add_argument("--sample", action="store_true", help="Generate sample data")
+    parser.add_argument("--preview", type=int, help="Preview N rows")
     args = parser.parse_args()
+    
+    assert RECORD_SIZE == 40, f"RECORD_SIZE should be 40, got {RECORD_SIZE}"
     
     if args.list:
         list_datasets()
-        return
-    
-    if args.info:
-        info = get_dataset_info(args.info)
-        print(f"\n Dataset: {args.info}")
-        print("-" * 40)
-        for key, value in info.items():
-            print(f"  {key}: {value}")
-        print()
-        return
-    
-    if args.dataset:
-        # Load the dataset
-        df = load_ohlcv(
-            args.dataset,
-            start_date=args.start,
-            end_date=args.end,
-            limit=args.preview,
-        )
-        
-        if args.preview:
-            print(f"\n Preview ({args.preview} rows):")
-            print(df.head(args.preview).to_string())
-            print()
-        
-        if args.output:
-            convert_to_binary(df, args.symbol_id, args.output)
-            print(f"\n Dataset ready for backtesting: {args.output}")
-        elif not args.preview:
-            # Default output
-            output_file = str(OUTPUT_DIR / f"{args.dataset}.bin")
-            convert_to_binary(df, args.symbol_id, output_file)
-            print(f"\n Dataset ready for backtesting: {output_file}")
-        
-        return
-    
-    # Default: show help
-    parser.print_help()
+    elif args.sample:
+        create_sample_data(args.output)
+    elif args.dataset:
+        if args.dataset.lower() == "reliance":
+            load_reliance_data(args.output)
+        else:
+            df = load_ohlcv(args.dataset, args.start, args.end, args.preview)
+            if df is None or len(df) == 0:
+                print(f"Dataset '{args.dataset}' not found. Use --list or --sample.")
+            elif args.preview:
+                print(df.head(args.preview).to_string())
+            else:
+                convert_to_binary(df, args.symbol_id, args.output)
+                print(f"\n✓ Ready: {args.output}")
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":

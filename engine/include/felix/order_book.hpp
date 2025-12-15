@@ -1,25 +1,32 @@
 #pragma once
 
-#include "execution.hpp"
+#include "felix/execution.hpp"
 #include <vector>
-#include <map>
+#include <unordered_map>
 
 namespace felix {
 
-    class OrderBook {
-    public:
-        void add_order(const Order& order);
-        void cancel_order(uint64_t order_id);
+/**
+ * OrderBook - Section 6.2
+ * Maintains bid/ask orders for queue simulation
+ */
+class OrderBook {
+public:
+    void add_order(const Order& order);
+    void cancel_order(uint64_t order_id);
+    std::vector<Fill> check_fills(double market_price);
+    
+    double best_bid() const;
+    double best_ask() const;
+    
+    const std::vector<Order>& bids() const { return bids_; }
+    const std::vector<Order>& asks() const { return asks_; }
+    size_t size() const { return orders_.size(); }
 
-        // Check if any resting orders match the new market price
-        // Returns a list of fills generated
-        std::vector<Fill> check_fills(double market_price);
+private:
+    std::unordered_map<uint64_t, Order> orders_;
+    std::vector<Order> bids_;
+    std::vector<Order> asks_;
+};
 
-        size_t active_orders_count() const { return orders_.size(); }
-
-    private:
-        // Simple storage: Map ID -> Order
-        std::map<uint64_t, Order> orders_;
-    };
-
-}
+} // namespace felix
