@@ -105,6 +105,7 @@ void EventLoop::process_tick(const TickRecord& tick, StrategyWrapper& strategy) 
         if (strategy.should_wake(tick)) {
             strategy.on_tick(tick);
         }
+        check_pending_orders(tick, strategy);
     }
 }
 
@@ -120,7 +121,6 @@ void EventLoop::check_pending_orders(const TickRecord& tick, StrategyWrapper& st
     
     // Get fills from matching engine
     std::vector<Fill> fills = matching_engine_->process_pending_orders(tick.timestamp);
-    
     for (const Fill& fill : fills) {
         // Update portfolio with fill
         portfolio_->on_fill(fill);
