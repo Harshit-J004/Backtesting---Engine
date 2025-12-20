@@ -107,7 +107,27 @@ std::vector<Fill> MatchingEngine::process_pending_orders(uint64_t current_timest
         }
         
         const MarketState& market = state_it->second;
-        
+        // ---- RISK CLIP: enforce max position / max order size ----
+	if (has_risk_limits_) {
+    		// clamp per-order size
+    		if ((int)order.size > (int)risk_limits_.max_order_size) {
+        		order.size = risk_limits_.max_order_size;
+    		}
+
+    		// enforce max position size (simple cap for BUY)
+    		if (order.side == Side::BUY) {
+        		if ((int)order.size > (int)risk_limits_.max_position_size) {
+            			order.size = risk_limits_.max_position_size;
+        		}
+    		}
+
+    		// reject if nothing left
+    		if ((int)order.size <= 0) {
+        		continue;
+    		}
+	}
+	// ---- END RISK CLIP ----
+
         // Try to match order
         Fill fill;
         bool matched = false;

@@ -29,6 +29,9 @@ void EventLoop::set_portfolio(Portfolio* portfolio) {
 
 void EventLoop::set_risk_engine(RiskEngine* risk_engine) {
     risk_engine_ = risk_engine;
+    if (matching_engine_ && risk_engine_) {
+        matching_engine_->set_risk_limits(risk_engine_->limits());
+    }
 }
 
 void EventLoop::run(DataStream& stream, StrategyWrapper& strategy) {
@@ -102,6 +105,7 @@ void EventLoop::process_tick(const TickRecord& tick, StrategyWrapper& strategy) 
         if (strategy.should_wake(tick)) {
             strategy.on_tick(tick);
         }
+        check_pending_orders(tick, strategy);
     }
 }
 
@@ -117,7 +121,6 @@ void EventLoop::check_pending_orders(const TickRecord& tick, StrategyWrapper& st
     
     // Get fills from matching engine
     std::vector<Fill> fills = matching_engine_->process_pending_orders(tick.timestamp);
-    
     for (const Fill& fill : fills) {
         // Update portfolio with fill
         portfolio_->on_fill(fill);
