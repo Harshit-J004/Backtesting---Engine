@@ -1,5 +1,5 @@
 #pragma once
-
+#include "felix/risk.hpp"
 #include "felix/execution.hpp"
 #include "felix/tick_record.hpp"
 #include <vector>
@@ -74,12 +74,18 @@ public:
     size_t pending_order_count() const;
     const std::vector<Order>& get_pending_orders() const;
 
+    void set_risk_limits(const RiskLimits& limits) {
+       risk_limits_ = limits;
+       has_risk_limits_ = true;
+    }
+
 private:
     // Order matching functions
     bool match_market_order(const Order& order, const MarketState& market, Fill& fill);
     bool match_limit_order(const Order& order, const MarketState& market, Fill& fill);
     bool match_stop_order(const Order& order, const MarketState& market, Fill& fill);
-    
+    bool has_risk_limits_ = false;
+    RiskLimits risk_limits_;
     // Apply slippage to fill
     void apply_slippage(Fill& fill, const Order& order, const MarketState& market);
     

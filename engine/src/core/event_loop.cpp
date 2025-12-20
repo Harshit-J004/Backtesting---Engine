@@ -29,6 +29,9 @@ void EventLoop::set_portfolio(Portfolio* portfolio) {
 
 void EventLoop::set_risk_engine(RiskEngine* risk_engine) {
     risk_engine_ = risk_engine;
+    if (matching_engine_ && risk_engine_) {
+        matching_engine_->set_risk_limits(risk_engine_->limits());
+    }
 }
 
 void EventLoop::run(DataStream& stream, StrategyWrapper& strategy) {

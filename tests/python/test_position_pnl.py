@@ -29,8 +29,8 @@ TICK_SIZE = 40
 
 def create_test_tick(timestamp_ns, symbol_id, price, volume=1000):
     """Create a tick record for testing"""
-    bid = price - 0.05
-    ask = price + 0.05
+    bid = price
+    ask = price
     return struct.pack(TICK_FORMAT, timestamp_ns, symbol_id, price, bid, ask, 100.0, 100.0, volume, 0)
 
 
