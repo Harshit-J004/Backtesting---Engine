@@ -2,18 +2,15 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
-# ==========================================
-# STRATEGY ENABLE FLAGS
-# ==========================================
 ENABLE_STRATEGY_1 = True   # Bollinger Bands strategy (from test1.py)
 ENABLE_STRATEGY_2 = True   # 3EMA + ATR strategy (from test2.py)
 
 # ==========================================
 # COMMON CONFIGURATION
 # ==========================================
-CSV_FILE_PATH = "/mnt/c/Users/spkri/OneDrive/Desktop/Python/reliance_1m.csv"
-START_DATE = '2017-01-01'
-END_DATE = '2017-12-31'
+CSV_FILE_PATH = '/Users/namishgoyal/Desktop/hedge_fund_sniper2/btcusd_1-min_data.csv'
+START_DATE = '2025-01-01'
+END_DATE = '2025-09-28'
 
 INITIAL_CAPITAL = 10000.0
 COMMISSION_RATE = 0.0002  # 0.02% per trade

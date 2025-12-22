@@ -187,6 +187,7 @@ PYBIND11_MODULE(felix_engine, m) {
     // Portfolio - Section 4.2
     py::class_<felix::Portfolio>(m, "Portfolio")
         .def(py::init<double>(), py::arg("initial_cash"))
+        // .def("initial_capital", &felix::Portfolio::initial_capital)    
         .def("on_fill", &felix::Portfolio::on_fill)
         .def("update_prices", &felix::Portfolio::update_prices)
         .def("append_equity_point", &felix::Portfolio::append_equity_point)
@@ -213,6 +214,8 @@ PYBIND11_MODULE(felix_engine, m) {
         .def("get_best_bid", &felix::MatchingEngine::get_best_bid)
         .def("get_best_ask", &felix::MatchingEngine::get_best_ask)
         .def("get_last_price", &felix::MatchingEngine::get_last_price)
+        .def("set_risk_engine", &felix::MatchingEngine::set_risk_engine)
+        .def("set_portfolio", &felix::MatchingEngine::set_portfolio)
         .def("pending_order_count", &felix::MatchingEngine::pending_order_count)
         .def("get_pending_orders", &felix::MatchingEngine::get_pending_orders,
              py::return_value_policy::reference);

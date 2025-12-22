@@ -36,15 +36,20 @@ void MatchingEngine::update_market_state(const TickRecord& tick) {
 }
 
 uint64_t MatchingEngine::submit_order(Order order) {
-    /**
-     * Section 6.1 & 8.1 - Order Submission with Latency
-     * 
-     * t_active = t_signal + Δ_strategy + Δ_engine
-     * Order becomes eligible for matching only when t >= t_active
-     */
-    
     // Assign order ID
     order.order_id = next_order_id_++;
+
+    if (risk_engine_ && portfolio_) {
+        double cash = portfolio_->cash();
+        double equity = portfolio_->equity();
+        double initial = portfolio_->initial_cash();
+        
+        if (!risk_engine_->check_order(order, cash, equity, initial)) {
+            // Order rejected by risk checks
+            return 0;  // Return 0 or invalid order_id to indicate rejection
+        }
+    }
+
     order.status = OrderStatus::PENDING;
     
     // Calculate activation time with latency model (Section 8.1)
@@ -59,8 +64,16 @@ uint64_t MatchingEngine::submit_order(Order order) {
               << order.size << " @ " 
               << (order.order_type == OrderType::MARKET ? "MARKET" : std::to_string(order.price))
               << " (active at t+" << total_latency << "ns)" << std::endl;
-    
+
     return order.order_id;
+}
+
+void MatchingEngine::set_risk_engine(RiskEngine* risk_engine) {
+    risk_engine_ = risk_engine;
+}
+
+void MatchingEngine::set_portfolio(Portfolio* portfolio) {
+    portfolio_ = portfolio;
 }
 
 bool MatchingEngine::cancel_order(uint64_t order_id) {

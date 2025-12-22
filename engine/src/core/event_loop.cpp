@@ -41,7 +41,19 @@ void EventLoop::run(DataStream& stream, StrategyWrapper& strategy) {
      * Deterministic: single thread, fixed random seed, strict timestamp order.
      * Risk before strategy: internal exits happen even if Python is slow.
      */
+    if (risk_engine_ && matching_engine_ && portfolio_) {
+        matching_engine_->set_risk_engine(risk_engine_);
+        matching_engine_->set_portfolio(portfolio_);
+        peak_equity_ = portfolio_->initial_cash();
+    }
+
+    // Initialize peak equity in risk engine
+    if (risk_engine_ && portfolio_) {
+        risk_engine_->check_and_update_halt(portfolio_->equity(), portfolio_->initial_cash(), 0.0);
+    }
     
+    
+
     if (!matching_engine_ || !portfolio_) {
         std::cerr << "[EventLoop] ERROR: MatchingEngine or Portfolio not set!" << std::endl;
         return;
@@ -60,6 +72,11 @@ void EventLoop::run(DataStream& stream, StrategyWrapper& strategy) {
         const TickRecord& tick = stream.next();
         process_tick(tick, strategy);
         ticks_processed_++;
+        if (risk_engine_ && portfolio_ && !risk_engine_->is_halted()) {
+            double daily_pnl = portfolio_->equity() - portfolio_->initial_cash();
+            risk_engine_->check_and_update_halt(portfolio_->equity(), portfolio_->initial_cash(), daily_pnl);
+        }
+        
         
         // Progress logging every 100k ticks
         if (ticks_processed_ % 100000 == 0) {

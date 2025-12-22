@@ -78,9 +78,14 @@ public:
        risk_limits_ = limits;
        has_risk_limits_ = true;
     }
+    
+    void set_risk_engine(RiskEngine* risk_engine);
+    void set_portfolio(Portfolio* portfolio);
 
 private:
     // Order matching functions
+    RiskEngine* risk_engine_ = nullptr;
+    Portfolio* portfolio_ = nullptr;
     bool match_market_order(const Order& order, const MarketState& market, Fill& fill);
     bool match_limit_order(const Order& order, const MarketState& market, Fill& fill);
     bool match_stop_order(const Order& order, const MarketState& market, Fill& fill);
