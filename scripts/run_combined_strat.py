@@ -8,6 +8,7 @@ import os
 import sys
 import json
 from datetime import datetime
+import struct
 from collections import deque
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -489,7 +490,7 @@ def calculate_metrics(equity_curve, initial_capital, trades):
 
 
 def main():
-    data_file = "data/processed/reliance.bin"
+    data_file = "data/processed/btcusdt.bin"
     
     if not os.path.exists(data_file):
         print(f"Data file not found: {data_file}")
@@ -497,6 +498,14 @@ def main():
         return
     
     os.makedirs("results/combined_backtest", exist_ok=True)
+    
+    # Read first and last timestamps from binary file
+    with open(data_file, 'rb') as f:
+        data = f.read(40)
+        first_ts = struct.unpack('<Q', data[:8])[0]
+        f.seek(-40, 2)
+        data = f.read(40)
+        last_ts = struct.unpack('<Q', data[:8])[0]
     
     stream = fe.DataStream()
     stream.load(data_file)
@@ -546,22 +555,25 @@ def main():
     total_return = (total_pnl / initial_capital) * 100
     
     equity_curve = portfolio.get_equity_values()
-    timestamps = portfolio.get_timestamps()
     trades = strategy.get_trades()
     stats = strategy.get_stats()
     
     metrics = calculate_metrics(equity_curve, initial_capital, trades)
     
-    if len(timestamps) >= 2:
-        duration_ns = timestamps[-1] - timestamps[0]
-        duration_days = duration_ns / (1e9 * 86400)
-    else:
-        duration_days = 0
+    # Calculate duration from tick data
+    duration_ns = last_ts - first_ts
+    duration_days = duration_ns / (1e9 * 86400)
+    duration_years = duration_days / 365.0
+    
+    # Convert to readable dates
+    start_date = datetime.utcfromtimestamp(first_ts / 1e9).strftime('%Y-%m-%d')
+    end_date = datetime.utcfromtimestamp(last_ts / 1e9).strftime('%Y-%m-%d')
     
     print("\n" + "=" * 60)
     print("COMBINED BACKTEST RESULTS")
     print("=" * 60)
-    print(f"Duration:           {duration_days:.0f} days")
+    print(f"Period:             {start_date} to {end_date}")
+    print(f"Duration:           {duration_days:.0f} days ({duration_years:.1f} years)")
     print(f"Initial Capital:    ${initial_capital:,.2f}")
     print(f"Final Equity:       ${final_equity:,.2f}")
     print(f"Total P&L:          ${'+' if total_pnl >= 0 else ''}{total_pnl:,.2f} ({total_return:+.2f}%)")
@@ -587,7 +599,10 @@ def main():
         'final_equity': final_equity,
         'total_pnl': total_pnl,
         'total_return_pct': total_return,
+        'start_date': start_date,
+        'end_date': end_date,
         'duration_days': duration_days,
+        'duration_years': duration_years,
         'strategy_stats': stats,
         'metrics': metrics,
         'num_ticks': stream.size(),
