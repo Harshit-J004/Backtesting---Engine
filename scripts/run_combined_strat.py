@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# filepath: /home/joelb23/BacktestingEngine/scripts/run_combined_strat.py
-"""
-Felix Backtester - Combined Strategy (Bollinger Bands + 3EMA/ATR)
-"""
-
 import os
 import sys
 import json

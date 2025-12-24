@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-BTC/USDT Data Loader - Converts Binance 1-minute OHLCV CSVs to binary TickRecord format.
-"""
-
 import os
 import sys
 import struct
@@ -61,7 +56,7 @@ def load_all_btc_data(start_year: Optional[int] = None,
     
     dfs = []
     for csv_file in csv_files:
-        # Extract year from filename (e.g., BTC_USDT_1m_2019.csv → 2019)
+        # Extracting year from filename (e.g., BTC_USDT_1m_2019.csv → 2019)
         year = None
         for part in csv_file.stem.split('_'):
             if part.isdigit() and len(part) == 4:
@@ -132,15 +127,15 @@ def convert_to_binary(df: pd.DataFrame, symbol_id: int, output_file: str) -> Non
             
             record = struct.pack(
                 PACK_FORMAT,
-                ts_ns,              # uint64: timestamp in nanoseconds
-                symbol_id,          # uint32: symbol ID
-                price,              # float: price (close)
-                bid,                # float: bid price
-                ask,                # float: ask price
-                100.0,              # float: bid_size (placeholder)
-                100.0,              # float: ask_size (placeholder)
-                vol,                # uint32: volume
-                0                   # uint32: flags
+                ts_ns,              
+                symbol_id,          
+                price,              
+                bid,                
+                ask,               
+                100.0,              
+                100.0,              
+                vol,                
+                0                   
             )
             f.write(record)
             
@@ -152,11 +147,11 @@ def convert_to_binary(df: pd.DataFrame, symbol_id: int, output_file: str) -> Non
     file_size = output_path.stat().st_size
     expected_size = len(df) * RECORD_SIZE
     
-    print(f"\n✓ Saved {file_size // RECORD_SIZE:,} records to {output_file}")
+    print(f"\n Saved {file_size // RECORD_SIZE:,} records to {output_file}")
     print(f"  File size: {file_size:,} bytes ({file_size / 1e6:.1f} MB)")
     
     if file_size != expected_size:
-        print(f"  ⚠ Warning: Expected {expected_size:,} bytes, got {file_size:,}")
+        print(f" Warning: Expected {expected_size:,} bytes, got {file_size:,}")
 
 
 def verify_binary(filepath: str, num_records: int = 5) -> None:

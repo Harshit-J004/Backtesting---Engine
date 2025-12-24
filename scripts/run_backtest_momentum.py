@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# filepath: /home/joelb23/BacktestingEngine/scripts/run_backtest_momentum.py
-"""
-Felix Backtester - Momentum Breakout Strategy
-"""
-
 import os
 import sys
 import json

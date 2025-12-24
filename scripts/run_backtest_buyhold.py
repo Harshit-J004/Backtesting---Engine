@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# filepath: /home/joelb23/BacktestingEngine/scripts/run_backtest_buyhold.py
-"""
-Felix Backtester - Buy & Hold Strategy (System Verification)
-"""
-
 import os
 import sys
 import json

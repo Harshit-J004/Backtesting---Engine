@@ -1,15 +1,3 @@
-#!/usr/bin/env python3
-# filepath: /home/joelb23/BacktestingEngine/tests/python/test_position_pnl.py
-"""
-Test Suite: Position Tracking & P&L Calculation
-Validates:
-- Position management (buy/sell/partial)
-- Cash tracking
-- Realized P&L calculation
-- Unrealized P&L calculation
-- Edge cases (limits, zero orders, insufficient cash)
-"""
-
 import os
 import sys
 import struct

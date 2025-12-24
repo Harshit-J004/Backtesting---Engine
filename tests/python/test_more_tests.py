@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-Additional Felix Engine tests (not covered by test_position_pnl / test_sl_tp).
-Focus:
-- Risk enforcement (cash, notional, order size, daily loss, drawdown)
-- Latency behavior
-- Slippage direction
-- Portfolio time series consistency
-- Multiple orders in same tick
-"""
-
 import os
 import sys
 import struct
@@ -265,28 +254,6 @@ class TestMoreCriticalCases(unittest.TestCase):
         self.assertGreaterEqual(len(res["fills"]), 2, "Entry and exit should fill")
         self.assertEqual(len(res["fills"]), 2, "After daily loss HALT, further orders must not fill")
 
-    # def test_05_max_drawdown_halts_further_trading(self):
-    #     test_file = os.path.join(self.test_data_dir, "more_drawdown_halt.bin")
-    #     # Use smaller loss that doesn't trigger halt before exit
-    #     # Entry at 100, exit at 90 (10% loss), then halt prevents re-entry
-    #     prices = [100.0, 100.0, 90.0, 100.0, 100.0, 100.0]
-    #     ticks = [create_test_tick(1_000_000_000 * (i + 1), 1, prices[i]) for i in range(len(prices))]
-    #     write_test_data(test_file, ticks)
-        
-    #     engine, portfolio, risk_engine = make_engine_portfolio_risk(
-    #         initial_capital=1000.0,
-    #         max_drawdown=0.05,  # 5% - will trigger after 10% realized loss
-    #         max_daily_loss=1e12,
-    #         max_notional=1e12,
-    #         max_order_size=1000,
-    #         max_position_size=1000,
-    #     )
-        
-    #     strat = AlwaysTradeAfterExitStrategy(engine, portfolio, entry_tick=2, exit_tick=3, size=10)
-    #     res = run_stream(engine, portfolio, risk_engine, test_file, strat)
-        
-    #     self.assertGreaterEqual(len(res["fills"]), 2)
-    #     self.assertEqual(len(res["fills"]), 2, "After drawdown HALT, further orders must not fill")
 
     def test_05_latency_delays_fill_until_active(self):
         test_file = os.path.join(self.test_data_dir, "more_latency.bin")

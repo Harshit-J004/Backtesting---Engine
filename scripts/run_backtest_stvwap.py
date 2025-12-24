@@ -1,6 +1,3 @@
-"""
-Felix Backtester - VWAP Strategy
-"""
 import sys
 import os
 from datetime import datetime

@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-# filepath: /home/joelb23/BacktestingEngine/tests/python/test_sl_tp.py
-"""
-Test Suite: Stop Loss & Take Profit
-Validates:
-- Stop loss triggers correctly when price drops
-- Take profit triggers correctly when price rises
-- SL/TP priority (which triggers first)
-- Trailing stop loss
-- Gap through SL/TP
-- Multiple positions with independent SL/TP
-"""
-
 import os
 import sys
 import struct

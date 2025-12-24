@@ -1,7 +1,3 @@
-"""
-Felix Backtester - Run Backtest
-Production-grade event-driven backtest with C++ engine.
-"""
 import sys
 import os
 from datetime import datetime
@@ -14,7 +10,7 @@ root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(root_dir, "python"))
 # sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Add compiled engine path relative to project root (which is in sys.path[1] or similar, but better explicit)
+# Adding compiled engine path relative to project root (which is in sys.path[1] or similar, but better explicit)
 sys.path.append(os.path.join(project_root, "Release"))
 
 import felix_engine as fe

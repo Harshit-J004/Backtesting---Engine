@@ -1,7 +1,3 @@
-"""
-Felix Analytics Module - Performance Metrics
-Computes: Sharpe, Sortino, Max Drawdown, CAGR, Win Rate
-"""
 import numpy as np
 from typing import List, Tuple
 import json
@@ -10,16 +6,12 @@ from datetime import datetime
 
 
 def compute_returns(equity_curve: List[float]) -> np.ndarray:
-    """Compute daily returns from equity curve."""
     eq = np.array(equity_curve)
     returns = np.diff(eq) / eq[:-1]
     return returns
 
 
 def sharpe_ratio(returns: np.ndarray, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
-    """
-    Sharpe Ratio = (mean(returns) - rf) / std(returns) * sqrt(periods)
-    """
     if len(returns) < 2 or np.std(returns) == 0:
         return 0.0
     excess_returns = returns - risk_free_rate / periods_per_year
@@ -27,10 +19,6 @@ def sharpe_ratio(returns: np.ndarray, risk_free_rate: float = 0.0, periods_per_y
 
 
 def sortino_ratio(returns: np.ndarray, risk_free_rate: float = 0.0, periods_per_year: int = 252) -> float:
-    """
-    Sortino Ratio = (mean(returns) - rf) / downside_std * sqrt(periods)
-    Only considers negative returns for volatility.
-    """
     if len(returns) < 2:
         return 0.0
     excess_returns = returns - risk_free_rate / periods_per_year
@@ -41,10 +29,6 @@ def sortino_ratio(returns: np.ndarray, risk_free_rate: float = 0.0, periods_per_
 
 
 def max_drawdown(equity_curve: List[float]) -> Tuple[float, int, int]:
-    """
-    Max Drawdown = max peak-to-trough decline
-    Returns: (max_dd_pct, peak_idx, trough_idx)
-    """
     eq = np.array(equity_curve)
     peak = eq[0]
     peak_idx = 0
@@ -66,9 +50,6 @@ def max_drawdown(equity_curve: List[float]) -> Tuple[float, int, int]:
 
 
 def cagr(equity_curve: List[float], periods_per_year: int = 252) -> float:
-    """
-    CAGR = (final / initial) ^ (1 / years) - 1
-    """
     if len(equity_curve) < 2 or equity_curve[0] <= 0:
         return 0.0
     years = len(equity_curve) / periods_per_year
@@ -78,7 +59,6 @@ def cagr(equity_curve: List[float], periods_per_year: int = 252) -> float:
 
 
 def win_rate(trades: List[dict]) -> float:
-    """Win rate = winning trades / total trades"""
     if not trades:
         return 0.0
     wins = sum(1 for t in trades if t.get('pnl', 0) > 0)
@@ -86,7 +66,6 @@ def win_rate(trades: List[dict]) -> float:
 
 
 def average_win_loss(trades: List[dict]) -> Tuple[float, float]:
-    """Average winning P&L and average losing P&L"""
     wins = [t['pnl'] for t in trades if t.get('pnl', 0) > 0]
     losses = [t['pnl'] for t in trades if t.get('pnl', 0) < 0]
     avg_win = np.mean(wins) if wins else 0.0
@@ -96,8 +75,6 @@ def average_win_loss(trades: List[dict]) -> Tuple[float, float]:
 
 
 class BacktestResults:
-    """Container for backtest results and metrics."""
-    
     def __init__(self, equity_curve: List[float], trades: List[dict], 
                  initial_capital: float = 100000.0,
                  start_date: datetime = None, end_date: datetime = None):
@@ -109,7 +86,6 @@ class BacktestResults:
         self.returns = compute_returns(equity_curve) if len(equity_curve) > 1 else np.array([])
         
     def summary(self) -> dict:
-        """Compute all metrics and return as dict."""
         max_dd, peak_idx, trough_idx = max_drawdown(self.equity_curve)
         avg_win, avg_loss = average_win_loss(self.trades)
         

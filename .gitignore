@@ -36,3 +36,9 @@ datasets/
 .venv/
 venv/
 env/
+
+# Node/JS
+**/node_modules/
+dashboard/dist/
+dashboard/.env
+

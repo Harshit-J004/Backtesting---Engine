@@ -1,8 +1,3 @@
-"""
-Felix Backtester - Dataset Loader
-Unified loader for local NSE datasets: Futures, Spot, Stocks, and FII/DII data.
-"""
-
 import os
 import sys
 import struct

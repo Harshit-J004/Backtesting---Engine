@@ -1,23 +1,3 @@
-#!/usr/bin/env python3
-"""
-bt_reference_runner.py
-
-Goal:
-- Produce a "Backtrader reference" output that is directly comparable to combined_backtest.py.
-- Uses Backtrader as the event loop (1m iteration), BUT uses the SAME execution / fill model
-  as combined_backtest.py (manual fills), so results match closely.
-
-Outputs (written under results/backtrader_reference/):
-- strategy1_trades_log.csv
-- strategy2_trades_log.csv
-- strategy1_summary.json
-- strategy2_summary.json
-- combined_summary.json
-
-Run:
-  python3 scripts/bt_reference_runner.py
-"""
-
 import os
 import json
 import math

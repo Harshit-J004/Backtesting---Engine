@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# filepath: /home/joelb23/BacktestingEngine/scripts/verify_results.py
-"""
-Felix System Verification - Check data, timing, and calculations
-"""
-
 import os
 import sys
 import struct

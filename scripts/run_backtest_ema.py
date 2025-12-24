@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# filepath: /home/joelb23/BacktestingEngine/scripts/run_backtest_ema.py
-"""
-Felix Backtester - EMA Crossover Strategy (9/14)
-"""
-
 import os
 import sys
 import json

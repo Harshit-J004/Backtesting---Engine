@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# filepath: /home/joelb23/BacktestingEngine/scripts/load_datasets.py
-"""
-Data Loading Script - Section 4.1
-Converts CSV/Parquet data to binary TickRecord format for C++ engine.
-"""
-
 import os
 import sys
 import struct

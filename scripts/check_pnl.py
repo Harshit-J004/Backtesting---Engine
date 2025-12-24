@@ -1,4 +1,3 @@
-
 import pandas as pd
 try:
     df = pd.read_csv('results/trades.csv')

@@ -1,6 +1,3 @@
-"""
-Felix Backtester - Bollinger Bands Strategy
-"""
 import sys
 import os
 from datetime import datetime
