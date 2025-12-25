@@ -3,6 +3,7 @@
 #include <cmath>
 #include <random>
 #include <iostream>
+#include <string>
 
 namespace felix {
 

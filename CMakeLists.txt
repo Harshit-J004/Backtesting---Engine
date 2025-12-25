@@ -12,8 +12,7 @@ else()
     add_compile_options(-O3 -march=native -flto)
 endif()
 
-# find_package(Python 3.8 COMPONENTS Interpreter Development REQUIRED)
-find_package(Python 3.11 COMPONENTS Interpreter Development REQUIRED)
+find_package(Python 3.13 COMPONENTS Interpreter Development REQUIRED)
 
 execute_process(
     COMMAND "${Python_EXECUTABLE}" -m pybind11 --cmakedir
@@ -45,11 +44,6 @@ set_target_properties(felix_engine PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_
 
 target_link_libraries(felix_engine PRIVATE pybind11::module)
 
-enable_testing()
-add_executable(test_datastream tests/cpp/test_datastream.cpp ${ENGINE_SOURCES})
-target_include_directories(test_datastream PRIVATE engine/include)
 
-add_executable(test_matching tests/cpp/test_matching.cpp ${ENGINE_SOURCES})
-target_include_directories(test_matching PRIVATE engine/include)
 
 

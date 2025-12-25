@@ -1,22 +1,30 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import glob
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from scripts.dashboard_exporter import DashboardExporter
 
 # ==========================================
 # STRATEGY ENABLE FLAGS
 # ==========================================
-ENABLE_STRATEGY_1 = True   # Bollinger Bands strategy (from test1.py)
-ENABLE_STRATEGY_2 = True   # 3EMA + ATR strategy (from test2.py)
+ENABLE_STRATEGY_1 = True   # Bollinger Bands strategy 
+ENABLE_STRATEGY_2 = True   # 3EMA + ATR strategy 
 
 # ==========================================
 # COMMON CONFIGURATION
 # ==========================================
-CSV_FILE_PATH = "/mnt/c/Users/spkri/OneDrive/Desktop/Python/reliance_1m.csv"
-START_DATE = '2023-01-01'
-END_DATE = '2024-12-31'
+# Path to directory containing split CSVs
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "datasets", "BTCUSDT_1m_data")
 
-INITIAL_CAPITAL = 10000.0
-COMMISSION_RATE = 0.0002  # 0.02% per trade
+START_DATE = '2021-01-01'
+END_DATE = '2025-01-01' # 4 Years testing
+
+INITIAL_CAPITAL = 100000.0 # Match C++ Engine
+COMMISSION_RATE = 0.0002  
 
 # ==========================================
 # STRATEGY 1 CONFIGURATION (Bollinger Bands)
@@ -41,45 +49,77 @@ S2_SL_ATR_MULT = 1
 # ==========================================
 # DATA LOADING AND PREPARATION
 # ==========================================
-def load_and_prep_data(filepath):
-    print(f"Loading data from {filepath}...")
-    try:
-        df = pd.read_csv(filepath)
-        df.columns = df.columns.str.strip().str.lower()
+def load_and_prep_data(data_dir):
+    print("VERSION DEBUG CHECK: NO TRY BLOCK")
+    print(f"Loading data from {data_dir}...")
+    
+    if not os.path.exists(data_dir):
+        raise ValueError(f"Directory not found: {data_dir}")
+        
+    all_files = glob.glob(os.path.join(data_dir, "*.csv"))
+    if not all_files:
+        raise ValueError(f"No CSV files found in {data_dir}")
+        
+    print(f"DEBUG: all_files = {all_files}")
+    print(f"Found {len(all_files)} CSV files. Merging...")
+    
+    # Read and concat
+    df_list = []
+    for f in sorted(all_files):
+        # Optimally read only needed columns
+        temp = pd.read_csv(f)
+        temp.columns = temp.columns.str.strip().str.lower()
+        
+        # Rename open_time to timestamp if needed
+        if 'open_time' in temp.columns and 'timestamp' not in temp.columns:
+            temp.rename(columns={'open_time': 'timestamp'}, inplace=True)
+        
+        if 'timestamp' in temp.columns:
+            # Check unit for THIS file
+            first_ts = temp['timestamp'].iloc[0]
+            unit = 'ms' if first_ts > 10000000000 else 's' # 10 digits vs 13
+            temp['datetime'] = pd.to_datetime(temp['timestamp'], unit=unit)
+            temp.set_index('datetime', inplace=True)
+            
+            print(f"[DEBUG] File: {os.path.basename(f)} | TS: {first_ts} | Unit: {unit} | First Date: {temp.index[0]} | Rows: {len(temp)}")
+            
+            df_list.append(temp)
+        
+    df = pd.concat(df_list)
+    df.sort_index(inplace=True)
 
-        # Handle Timestamp
-        if 'timestamp' in df.columns:
-            df['datetime'] = pd.to_datetime(df['timestamp'], unit='s')
-        elif 'date' in df.columns:
-            df['datetime'] = pd.to_datetime(df['date'])
-        elif 'datetime' in df.columns:
-            df['datetime'] = pd.to_datetime(df['datetime'])
-        else:
-            raise ValueError("Could not find 'timestamp', 'date', or 'datetime' column")
+    required_cols = ['open', 'high', 'low', 'close']
+    for col in required_cols:
+        if col not in df.columns:
+            raise ValueError(f"Missing required column: {col}")
 
-        df.set_index('datetime', inplace=True)
-        df.sort_index(inplace=True)
+    print(f"Data loaded successfully: {len(df)} rows from {df.index[0]} to {df.index[-1]}")
+    return df
 
-        required_cols = ['open', 'high', 'low', 'close']
-        for col in required_cols:
-            if col not in df.columns:
-                raise ValueError(f"Missing required column: {col}")
+# ==========================================
+# STRATEGY 1 CONFIGURATION (Bollinger Bands)
+# ==========================================
+S1_PCT_EQUITY = 0.5       # 1.0 = 100% of equity per trade
+S1_LENGTH = 20
+S1_MULT = 2.5
+S1_DIRECTION = 0          # 0 = Both, 1 = Long Only, -1 = Short Only
 
-        print(f"Data loaded successfully: {len(df)} rows from {df.index[0]} to {df.index[-1]}")
-        return df
+# ==========================================
+# STRATEGY 2 CONFIGURATION (3EMA + ATR)
+# ==========================================
+S2_PCT_EQUITY = 0.1       # 1.0 = 100% of equity per trade
+S2_SLOW_EMA_LEN = 30
+S2_MID_EMA_LEN = 12
+S2_FAST_EMA_LEN = 7
+S2_ATR_LEN = 7
+S2_TP_ATR_MULT = 4
+S2_SL_ATR_MULT = 1
 
-    except Exception as e:
-        print(f"CRITICAL ERROR loading data: {e}")
-        print("Generating dummy data so you can see the code run...")
-        dates = pd.date_range(start='2023-01-01', periods=10000, freq='1min')
-        price_curve = 100 * np.cumprod(1 + np.random.normal(0, 0.001, len(dates)))
-        data = {
-            'open': price_curve,
-            'high': price_curve * 1.002,
-            'low': price_curve * 0.998,
-            'close': price_curve + np.random.normal(0, 0.1, len(dates))
-        }
-        return pd.DataFrame(data, index=dates)
+
+# ==========================================
+# DATA LOADING AND PREPARATION
+# ==========================================
+
 
 
 def calculate_rma(series, length):
@@ -763,12 +803,95 @@ def calculate_combined_metrics(trades_s1, trades_s2):
     print(f"ROI:                 {roi:.2f}%")
     print("="*50)
 
+    # -----------------------------------------------
+    # DASHBOARD EXPORT INTEGRATION
+    # -----------------------------------------------
+    try:
+        export_trades = []
+        
+        if not trades_s1.empty:
+            for _, row in trades_s1.iterrows():
+                # Entry Trade
+                export_trades.append({
+                    'timestamp': int(row['entry_time'].timestamp() * 1e9),
+                    'price': row['entry_price'],
+                    'size': row['qty'],
+                    'type': 'entry',
+                    'strategy': 'BB',
+                    'pnl': 0
+                })
+                # Exit Trade
+                export_trades.append({
+                    'timestamp': int(row['exit_time'].timestamp() * 1e9),
+                    'price': row['exit_price'],
+                    'size': row['qty'],
+                    'type': 'exit',
+                    'strategy': 'BB',
+                    'pnl': row['net_pnl']
+                })
+
+        if not trades_s2.empty:
+            for _, row in trades_s2.iterrows():
+                # Entry Trade
+                export_trades.append({
+                    'timestamp': int(row['entry_time'].timestamp() * 1e9),
+                    'price': row['entry_price'],
+                    'size': row['qty'],
+                    'type': 'entry',
+                    'strategy': '3EMA',
+                    'pnl': 0
+                })
+                # Exit Trade
+                export_trades.append({
+                    'timestamp': int(row['exit_time'].timestamp() * 1e9),
+                    'price': row['exit_price'],
+                    'size': row['qty'],
+                    'type': 'exit',
+                    'strategy': '3EMA',
+                    'pnl': row['net_pnl']
+                })
+        
+        all_closed_trades = pd.concat([trades_s1, trades_s2]) if not trades_s2.empty else trades_s1
+        if not all_closed_trades.empty:
+            all_closed_trades['time'] = all_closed_trades['exit_time']
+            all_closed_trades.sort_values('time', inplace=True)
+            
+            current_eq = INITIAL_CAPITAL
+            export_equity = [current_eq] # Actually exporter expects list of float values
+            
+            daily_idx = pd.date_range(START_DATE, END_DATE, freq='D')
+            equity_dict = {d.strftime('%Y-%m-%d'): INITIAL_CAPITAL for d in daily_idx}
+            
+            cum_pnl = 0
+            for _, t in all_closed_trades.iterrows():
+                # Add pnl to all days >= exit_date
+                # Doing this iteratively is actually slow. 
+                # Better: Group by Day.
+                pass
+            
+            # Pandas vectorization
+            # Resample trades to daily PnL
+            all_closed_trades.set_index('time', inplace=True)
+            daily_pnl = all_closed_trades['net_pnl'].resample('D').sum().reindex(daily_idx, fill_value=0)
+            daily_equity = INITIAL_CAPITAL + daily_pnl.cumsum()
+            
+            export_equity = daily_equity.tolist()
+            
+            # 3. Export
+            exporter = DashboardExporter(output_dir="dashboard_data")
+            exporter.export(export_equity, export_trades, INITIAL_CAPITAL)
+            
+    except Exception as e:
+        print(f"DASHBOARD EXPORT FAILED: {e}")
+        import traceback
+        traceback.print_exc()
+
 
 # ==========================================
 # MAIN EXECUTION
 # ==========================================
 if __name__ == "__main__":
-    df_1m = load_and_prep_data(CSV_FILE_PATH)
+    df_1m = load_and_prep_data(DATA_DIR)
 
     if df_1m.empty:
         print("Failed to load data. Exiting.")

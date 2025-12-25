@@ -184,6 +184,58 @@ def convert_to_binary(df: pd.DataFrame, symbol_id: int, output_file: str) -> Non
     print(f"  ✓ Saved {file_size // RECORD_SIZE:,} records to {output_file} ({file_size:,} bytes)")
 
 
+
+def load_btc_full_data(output_path: str, start_year: int = 2021, end_year: int = 2025) -> None:
+    btc_dir = DATASETS_DIR / "BTCUSDT_1m_data"
+    all_dfs = []
+    
+    print(f"Loading BTC data from {start_year} to {end_year}...")
+    
+    for year in range(start_year, end_year + 1):
+        file_patterns = [f"BTC_USDT_1m_{year}.csv", f"BTCUSDT_{year}.csv"]
+        found = False
+        for pattern in file_patterns:
+            fpath = btc_dir / pattern
+            if fpath.exists():
+                print(f"  Reading: {fpath.name}")
+                df = pd.read_csv(fpath)
+                df.columns = df.columns.str.lower().str.strip()
+                all_dfs.append(df)
+                found = True
+                break
+        if not found:
+            print(f"  [WARN] No file found for year {year}")
+
+    if not all_dfs:
+        print("No BTC data files found!")
+        return
+
+    full_df = pd.concat(all_dfs, ignore_index=True)
+    
+    # Normalize columns
+    if "open_time" in full_df.columns:
+        # 13 digit timestamp = ms
+        full_df["datetime"] = pd.to_datetime(full_df["open_time"], unit='ms')
+    elif "date" in full_df.columns and "time" in full_df.columns:
+        # Try YYYY-MM-DD
+        full_df["datetime"] = pd.to_datetime(full_df["date"] + " " + full_df["time"], format="%Y-%m-%d %H:%M:%S", errors="coerce")
+    elif "timestamp" in full_df.columns:
+        # Check if timestamp is ms or seconds
+         # Assuming seconds if year < 3000, else ms
+        sample = full_df["timestamp"].iloc[0]
+        if sample > 3000000000: # ms
+             full_df["datetime"] = pd.to_datetime(full_df["timestamp"], unit='ms')
+        else:
+             full_df["datetime"] = pd.to_datetime(full_df["timestamp"], unit='s')
+    
+    # Filter valid dates
+    full_df = full_df.dropna(subset=["datetime"]).sort_values("datetime").reset_index(drop=True)
+    
+    print(f"Merged Data: {len(full_df):,} records ({full_df['datetime'].min()} to {full_df['datetime'].max()})")
+    
+    convert_to_binary(full_df, symbol_id=1, output_file=output_path)
+
+
 def load_reliance_data(output_path: str) -> None:
     df = load_ohlcv("reliance")
     if df is None or len(df) == 0:
@@ -219,7 +271,9 @@ def main():
     elif args.sample:
         create_sample_data(args.output)
     elif args.dataset:
-        if args.dataset.lower() == "reliance":
+        if args.dataset.lower() == "btc_full":
+            load_btc_full_data(args.output)
+        elif args.dataset.lower() == "reliance":
             load_reliance_data(args.output)
         else:
             df = load_ohlcv(args.dataset, args.start, args.end, args.preview)
