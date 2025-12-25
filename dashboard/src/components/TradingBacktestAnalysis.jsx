@@ -8,7 +8,6 @@ const TradingBacktestAnalysis = () => {
     const [equityData, setEquityData] = useState([]);
     const [activeTab, setActiveTab] = useState('overview');
 
-    // File upload handlers
     const handleFileUpload = (event, dataType) => {
         const file = event.target.files[0];
         if (file) {
@@ -34,7 +33,6 @@ const TradingBacktestAnalysis = () => {
         }
     };
 
-    // Commission & Slippage Verification
     const verifyCommissionSlippage = () => {
         if (tradeData.length === 0) return null;
 
@@ -42,9 +40,11 @@ const TradingBacktestAnalysis = () => {
             const lotSize = parseFloat(trade.lot_size);
             const slippagePips = parseFloat(trade.slippage_pips);
 
-            // Commission: $7 per lot for round trip (buy + sell)
-            // So for 0.01 lot = $0.07, for 0.05 lot = $0.35
-            const expectedCommission = lotSize * 7;
+            // Commission: Crypto Standard (0.02% per side = ~0.04% round trip)
+            // Estimation: LotSize * Price (~$40k avg) * 0.0004
+            // Since we don't have exact price here, we use a conservative $40k BTC avg
+            const avgBtcPrice = 40000;
+            const expectedCommission = (lotSize * avgBtcPrice) * 0.0004;
 
             // Slippage cost per pip per lot
             const slippageCost = Math.abs(slippagePips) * lotSize * 100000 * 0.0001;
@@ -61,12 +61,15 @@ const TradingBacktestAnalysis = () => {
         return analysis;
     };
 
-    // Calculate statistics
     const calculateStats = () => {
         if (basketData.length === 0) return null;
 
         const netPnls = basketData.map(b => parseFloat(b.net_pnl));
-        const durations = basketData.map(b => parseFloat(b.duration_minutes));
+        // Use duration_seconds if available, else fallback to minutes * 60
+        const durations = basketData.map(b => {
+            if (b.duration_seconds) return parseFloat(b.duration_seconds);
+            return parseFloat(b.duration_minutes || 0) * 60;
+        });
 
         const wins = netPnls.filter(p => p > 0);
         const losses = netPnls.filter(p => p <= 0);
@@ -84,12 +87,20 @@ const TradingBacktestAnalysis = () => {
             avgWin,
             avgLoss,
             winRate,
-            avgDuration,
-            maxDuration,
+            avgDuration, // In seconds
+            maxDuration, // In seconds
             totalTrades: basketData.length,
             wins: wins.length,
             losses: losses.length
         };
+    };
+
+    // Helper to format duration
+    const formatDuration = (seconds) => {
+        if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
+        if (seconds < 60) return `${seconds.toFixed(1)}s`;
+        if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
+        return `${(seconds / 3600).toFixed(1)}h`;
     };
 
     // Prepare equity curve data
@@ -281,10 +292,10 @@ const TradingBacktestAnalysis = () => {
                                     <Clock className="w-5 h-5 text-purple-600" />
                                 </div>
                                 <div className="text-2xl font-bold text-purple-600">
-                                    {(stats.avgDuration / 60).toFixed(1)}h
+                                    {formatDuration(stats.avgDuration)}
                                 </div>
                                 <div className="text-xs text-gray-500 mt-1">
-                                    Max: {(stats.maxDuration / 60).toFixed(1)}h
+                                    Max: {formatDuration(stats.maxDuration)}
                                 </div>
                             </div>
 
@@ -464,9 +475,9 @@ const TradingBacktestAnalysis = () => {
                             <div className="flex items-start">
                                 <AlertCircle className="w-5 h-5 text-blue-600 mr-2 mt-0.5" />
                                 <div className="text-sm">
-                                    <p className="font-semibold text-blue-800 mb-1">Commission Formula:</p>
-                                    <p className="text-blue-700">Round-trip commission = Lot Size × $7</p>
-                                    <p className="text-blue-700 mt-1">Example: 0.05 lot = 0.05 × $7 = $0.35</p>
+                                    <p className="font-semibold text-blue-800 mb-1">Commission Formula (Crypto Standard):</p>
+                                    <p className="text-blue-700">Round-trip commission = ~0.04% of Notional Value (0.02% Entry + 0.02% Exit)</p>
+                                    <p className="text-blue-700 mt-1">Estimation Used: Lot Size * $40,000 (Avg BTC Price) * 0.0004</p>
                                 </div>
                             </div>
                         </div>
