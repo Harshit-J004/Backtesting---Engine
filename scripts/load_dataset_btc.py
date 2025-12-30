@@ -14,7 +14,11 @@ OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
 # Binary format: Q(8) + I(4) + f(4)*5 + I(4)*2 = 40 bytes
 PACK_FORMAT = '<QIfffffII'
 RECORD_SIZE = struct.calcsize(PACK_FORMAT)
+CONFIG_FILE = PROJECT_ROOT / "scripts" / "backtest_config.json"
 
+with open(CONFIG_FILE,'r') as f:
+    config = json.load(f)
+    spread = config["assets"]["BTC"]["spread"]
 
 def load_btc_csv(filepath: Path) -> pd.DataFrame:
     """Load a single BTC CSV file."""
@@ -118,7 +122,7 @@ def convert_to_binary(df: pd.DataFrame, symbol_id: int, output_file: str) -> Non
             price = float(row['close'])
             
             # Bid/Ask: approximate from close (BTC typically has tight spread)
-            spread = price * 0.0001  # 0.01% spread approximation
+            # spread = price * 0.0001  # 0.01% spread approximation
             bid = price - spread
             ask = price + spread
             
@@ -132,8 +136,8 @@ def convert_to_binary(df: pd.DataFrame, symbol_id: int, output_file: str) -> Non
                 price,              
                 bid,                
                 ask,               
-                100.0,              
-                100.0,              
+                vol,              
+                vol,              
                 vol,                
                 0                   
             )
