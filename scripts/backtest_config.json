@@ -1,0 +1,33 @@
+{
+    "assets": {
+        "BTC": {
+            "symbol_id": 1,
+            "tick_size": 0.01,
+            "lot_size": 1.0,
+            "commission_bps": 2.0,
+            "slippage_bps": 2.0
+        },
+        "NIFTY": {
+            "symbol_id": 2,
+            "tick_size": 0.05,
+            "lot_size": 50.0,
+            "commission_bps": 0.0,
+            "slippage_bps": 0.5
+        },
+        "BANKNIFTY": {
+            "symbol_id": 3,
+            "tick_size": 0.05,
+            "lot_size": 15.0,
+            "commission_bps": 0.0,
+            "slippage_bps": 1.0
+        }
+    },
+    "execution": {
+        "execution_model": "NEXT_BAR_OPEN",
+        "intra_bar_fills": false
+    },
+    "data": {
+        "base_path": "data/processed",
+        "format": "binary"
+    }
+}
