@@ -196,7 +196,8 @@ class OrderManager:
                 
                 # Engine Sync
                 fe_order = fe.Order()
-                fe_order.symbol_id = self.spec['symbol_id']
+                # Use the symbol_id from the tick to match the data stream
+                fe_order.symbol_id = tick.symbol_id 
                 fe_order.side = fe.Side.BUY if order['side'] == 1 else fe.Side.SELL
                 fe_order.order_type = fe.OrderType.MARKET # FE only sees filled market trades
                 fe_order.size = exec_size
@@ -547,6 +548,7 @@ class CombinedStrategy(Strategy):
         self.trades_list = []
         self.equity_curve = []
         self.last_equity_day = -1
+        self.start_timestamp = None
         
         # 3. Init Strategies with Manager
         self.bb = BollingerBandsStrategy(self.manager, name="BB")
@@ -578,6 +580,10 @@ class CombinedStrategy(Strategy):
             
         # D. Equity Curve Tracking
         self.check_daily_equity(tick.timestamp)
+        
+        if self.start_timestamp is None:
+            # tick.timestamp is ns
+            self.start_timestamp = pd.Timestamp(tick.timestamp, unit='ns')
 
     def check_daily_equity(self, timestamp):
         # Timestamp is ns.
@@ -615,7 +621,7 @@ class CombinedStrategy(Strategy):
         # via our OrderManager.process_pending_orders() loop.
         pass
 
-def calculate_and_print_returns(equity_curve, initial_capital, start_date_str='2021-01-01', final_net_liq=None):
+def calculate_and_print_returns(equity_curve, initial_capital, start_date=None, final_net_liq=None):
     """ It Calculates Year-on-Year and Quarterly returns from daily equity curve."""
     if not equity_curve:
         print("No equity curve data to analyze.")
@@ -623,7 +629,11 @@ def calculate_and_print_returns(equity_curve, initial_capital, start_date_str='2
 
     try:
         # Create DataFrame
-        dates = [pd.Timestamp(start_date_str) + timedelta(days=i) for i in range(len(equity_curve))]
+        if start_date is None:
+            # Fallback
+            start_date = pd.Timestamp('2021-01-01')
+            
+        dates = [start_date + timedelta(days=i) for i in range(len(equity_curve))]
         
         if final_net_liq is not None:
              # Ensure last point matches final liquidating value
@@ -695,7 +705,7 @@ def main():
     # Construct absolute path to data file
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
-    data_file = os.path.join(project_root, "data", "processed", "btc_2021_2025.bin")
+    data_file = os.path.join(project_root, "data", "processed", "btcusdt.bin")
     
     if not os.path.exists(data_file):
         print(f"Error: {data_file} not found.")
@@ -751,7 +761,7 @@ def main():
     dashboard_path = os.path.join(project_root, "dashboard_data")
     exporter = DashboardExporter(dashboard_path)
     exporter.export(strategy.equity_curve, strategy.trades_list, initial_capital)
-    calculate_and_print_returns(strategy.equity_curve, initial_capital, final_net_liq=final_equity)
+    calculate_and_print_returns(strategy.equity_curve, initial_capital, start_date=strategy.start_timestamp, final_net_liq=final_equity)
 
 if __name__ == "__main__":
     main()
