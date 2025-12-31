@@ -6,6 +6,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional
 import numpy as np
+import json
 
 PROJECT_ROOT = Path(__file__).parent.parent
 BTC_DATA_DIR = PROJECT_ROOT / "datasets" / "BTCUSDT_1m_data"
@@ -19,6 +20,7 @@ CONFIG_FILE = PROJECT_ROOT / "scripts" / "backtest_config.json"
 with open(CONFIG_FILE,'r') as f:
     config = json.load(f)
     spread = config["assets"]["BTC"]["spread"]
+    DEFAULT_SYMBOL_ID = int(config["assets"]["BTC"]["symbol_id"])
 
 def load_btc_csv(filepath: Path) -> pd.DataFrame:
     """Load a single BTC CSV file."""
@@ -128,7 +130,9 @@ def convert_to_binary(df: pd.DataFrame, symbol_id: int, output_file: str) -> Non
             
             # Volume: use BTC volume, convert to integer (multiply by 1000 for precision)
             vol = int(float(row['volume']) * 1000)  # Store as milli-BTC for integer precision
-            
+            bid_size = float(vol)
+            ask_size = bid_size
+
             record = struct.pack(
                 PACK_FORMAT,
                 ts_ns,              
@@ -136,8 +140,8 @@ def convert_to_binary(df: pd.DataFrame, symbol_id: int, output_file: str) -> Non
                 price,              
                 bid,                
                 ask,               
-                vol,              
-                vol,              
+                bid_size,              
+                ask_size,              
                 vol,                
                 0                   
             )
@@ -182,8 +186,8 @@ def main():
                         help="Output binary file path")
     parser.add_argument("--start-year", type=int, help="Start year (e.g., 2020)")
     parser.add_argument("--end-year", type=int, help="End year (e.g., 2023)")
-    parser.add_argument("--symbol-id", type=int, default=2, 
-                        help="Symbol ID for BTC (default: 2)")
+    parser.add_argument("--symbol-id", type=int, default=DEFAULT_SYMBOL_ID, 
+                        help=f"Symbol ID for BTC (default: {DEFAULT_SYMBOL_ID})")
     parser.add_argument("--verify", action="store_true", 
                         help="Verify output file after creation")
     parser.add_argument("--preview", type=int, 
