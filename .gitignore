@@ -4,6 +4,8 @@ Release/
 dist/
 *.egg-info/
 __pycache__/
+design.txt
+**/design.txt
 
 # Results (generated output)
 results/
