@@ -57,3 +57,6 @@ data/processed/
 
 # generated run outputs / datasets
 runner/runs/
+
+runner/runs/
+*.csv
