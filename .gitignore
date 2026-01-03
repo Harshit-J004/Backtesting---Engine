@@ -54,3 +54,6 @@ dashboard_data/
 data/processed/
 *.bin
 *.csv
+
+# generated run outputs / datasets
+runner/runs/
