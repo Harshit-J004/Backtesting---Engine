@@ -44,3 +44,4 @@ env/
 dashboard/dist/
 dashboard/.env
 
+dashboard_data/*.csv
