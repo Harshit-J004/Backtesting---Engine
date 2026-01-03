@@ -45,3 +45,12 @@ dashboard/dist/
 dashboard/.env
 
 dashboard_data/*.csv
+
+# -----------------------------
+# Local run artifacts / datasets
+# -----------------------------
+runner/runs/
+dashboard_data/
+data/processed/
+*.bin
+*.csv
