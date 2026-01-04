@@ -20,8 +20,9 @@ export default function HomePage() {
   } = useRun();
 
   const canRun = useMemo(() => {
-    return !!strategyFile && csvFiles.length > 0 && status !== "running";
-  }, [strategyFile, csvFiles.length, status]);
+    // [FIX] Allow run without CSV files (strategy uses local data)
+    return !!strategyFile && status !== "running";
+  }, [strategyFile, status]);
 
   const set = (patch) => setConfig((c) => ({ ...c, ...patch }));
 
@@ -41,12 +42,11 @@ export default function HomePage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className={`rounded-full px-3 py-1 text-xs font-medium ${
-              status === "running" ? "bg-amber-50 text-amber-800 border border-amber-200"
+            <div className={`rounded-full px-3 py-1 text-xs font-medium ${status === "running" ? "bg-amber-50 text-amber-800 border border-amber-200"
               : status === "done" ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-              : status === "error" ? "bg-rose-50 text-rose-800 border border-rose-200"
-              : "bg-slate-50 text-slate-700 border border-slate-200"
-            }`}>
+                : status === "error" ? "bg-rose-50 text-rose-800 border border-rose-200"
+                  : "bg-slate-50 text-slate-700 border border-slate-200"
+              }`}>
               {status === "running" ? "Running" : status === "done" ? "Ready" : status === "error" ? "Error" : "Idle"}
             </div>
           </div>
@@ -105,22 +105,7 @@ export default function HomePage() {
             />
           </label>
 
-          <label className="block">
-            <div className="text-sm font-medium text-slate-700 mb-2">Market Data CSV</div>
-            <input
-              type="file"
-              accept=".csv"
-              multiple
-              onChange={(e) => setCsvFiles(Array.from(e.target.files || []))}
-              className="block w-full text-sm"
-            />
-            <div className="text-xs text-slate-500 mt-1">
-              Large files are supported; conversion and parsing occurs inside the runner.
-            </div>
-            {csvFiles.length ? (
-              <div className="text-xs mt-2 text-emerald-700">✓ {csvFiles.length} file(s) selected</div>
-            ) : null}
-          </label>
+
         </div>
 
         {/* Parameters */}
@@ -161,13 +146,21 @@ export default function HomePage() {
             <div className="text-xs text-slate-500">
               Run will open Results with live logs and auto-loaded outputs.
             </div>
-            <button
-              onClick={startRun}
-              disabled={!canRun}
-              className="rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-            >
-              {status === "running" ? "Running…" : "Run Backtest"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => (window.location.hash = "#/results")}
+                className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                View Previous Results
+              </button>
+              <button
+                onClick={startRun}
+                disabled={!canRun}
+                className="rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                {status === "running" ? "Running…" : "Run Backtest"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
