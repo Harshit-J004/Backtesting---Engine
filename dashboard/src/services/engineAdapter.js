@@ -2,7 +2,7 @@
 
 export async function runBacktest({ strategyFile, csvFiles, config, onLog, onOutputs }) {
   if (!strategyFile) throw new Error("Please upload a strategy .py file.");
-  if (!csvFiles || csvFiles.length === 0) throw new Error("Please upload at least one CSV data file.");
+  // if (!csvFiles || csvFiles.length === 0) throw new Error("Please upload at least one CSV data file.");
 
   // extra params from JSON
   const paramsFromJson = safeJson(config.extraParamsJson, {});
@@ -52,7 +52,18 @@ export async function runBacktest({ strategyFile, csvFiles, config, onLog, onOut
   const fd = new FormData();
   fd.append("run_config_json", JSON.stringify(runConfig));
   fd.append("strategy", strategyFile);
-  csvFiles.forEach((f) => fd.append("csv_files", f));
+  if (csvFiles && csvFiles.length > 0) {
+    csvFiles.forEach((f) => fd.append("csv_files", f));
+  } else {
+    // If no CSV provided, server still expects the field, so we might need a workaround.
+    // However, usually FastAPI handles 'List[UploadFile]' as optional if default=[] is set.
+    // If server crashes, we send a dummy blob. But for now, let's try sending nothing for 'csv_files'
+    // or maybe the server requires it? 
+    // The server signature is: csv_files: List[UploadFile] = File(...) which means REQUIRED.
+    // So we MUST send a dummy file.
+    const dummyBlob = new Blob(["timestamp,open,high,low,close,volume\n"], { type: "text/csv" });
+    fd.append("csv_files", dummyBlob, "dummy_data.csv");
+  }
 
   onLog?.("info", "Submitting run...");
   const res = await fetch("/api/run/start", { method: "POST", body: fd });
@@ -68,7 +79,7 @@ export async function runBacktest({ strategyFile, csvFiles, config, onLog, onOut
     try {
       const j = JSON.parse(ev.data);
       onLog?.(j.level || "info", j.msg || "");
-    } catch {}
+    } catch { }
   };
 
   // poll status until done
