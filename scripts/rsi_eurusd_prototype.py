@@ -1,20 +1,3 @@
-"""
-RSI EURUSD Trailing Strategy (Prototype-format)
-
-This keeps the SAME backtest logic as your original:
-- RSI Wilder signals on 5m bars
-- Entry on next bar open within time window
-- SL anchor based on signal bar & previous bar
-- TP is RR multiple
-- Trailing stop tightens SL
-- Exit priority: SL first, then TP
-- Commission charged on entry+exit
-
-Adds:
-- STRATEGY_META + StrategyImpl (prototype.py contract)
-- prepare_data() for CSV->BIN (inside strategy, as requested)
-- run_pipeline() for UI runner to execute and export dashboard CSVs
-"""
 
 from __future__ import annotations
 
@@ -23,24 +6,18 @@ import sys
 import struct
 from dataclasses import dataclass
 from datetime import time as dtime
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
+import numpy as np
 
-# Strategy base (your project should set sys.path before importing)
-try:
-    from felix.strategy.base import Strategy  # type: ignore
-except Exception:
-    class Strategy:  # fallback for linting/import safety
-        def __init__(self): ...
-        def on_start(self): ...
-        def on_tick(self, tick): ...
-        def on_bar(self, bar): ...
-        def on_fill(self, fill): ...
-        def on_end(self): ...
-
+class Strategy:
+    def __init__(self): pass
+    def on_start(self): pass
+    def on_tick(self, tick): pass
+    def on_bar(self, bar): pass
+    def on_fill(self, fill): pass
+    def on_end(self): pass
 
 # ============================
 # Prototype-required metadata
@@ -196,6 +173,9 @@ def prepare_data(
             volume = 0
             padding = 0
             f.write(TICK_STRUCT.pack(ts_u64, symbol_id, price_f, bid_f, ask_f, bid_size, ask_size, volume, padding))
+            
+            if i % 100000 == 0:
+                log(f"[BIN] Processed {i} / {len(df_1m)} rows ...")
 
     log(f"[BIN] Wrote {len(df_1m)} TickRecord rows -> {out_bin_path}")
     return out_bin_path
@@ -483,7 +463,10 @@ def export_csvs_and_dashboard(
     trade_log: pd.DataFrame,
     equity_curve: pd.DataFrame,
     initial_capital: float,
+    log: Optional[Callable[[str], None]] = None,
 ) -> None:
+    if log is None:
+        log = print
     safe_mkdir(out_dir)
 
     bs_path = os.path.join(out_dir, "basket_summary.csv")
@@ -494,32 +477,15 @@ def export_csvs_and_dashboard(
     trade_log.to_csv(tl_path, index=False)
     equity_curve.to_csv(eq_path, index=False)
 
-    print(f"[CSV] basket_summary -> {bs_path}")
-    print(f"[CSV] trade_log      -> {tl_path}")
-    print(f"[CSV] equity_curve   -> {eq_path}")
+    log(f"[CSV] basket_summary -> {bs_path}")
+    log(f"[CSV] trade_log      -> {tl_path}")
+    log(f"[CSV] equity_curve   -> {eq_path}")
 
-    if DashboardExporter is None:
-        print("[WARN] DashboardExporter not available; only CSVs written.")
-        return
-
-    # DashboardExporter expects equity_curve as a flat list of floats (NOT list of dicts)
-    if equity_curve is not None and not equity_curve.empty:
-        if "total_equity" in equity_curve.columns:
-            equity_values = equity_curve["total_equity"].astype(float).tolist()
-        elif "equity" in equity_curve.columns:
-            equity_values = equity_curve["equity"].astype(float).tolist()
-        else:
-            equity_values = []
-    else:
-        equity_values = []
-
-    if not equity_values:
-        equity_values = [float(initial_capital)]
-
-    trades_rows = trade_log.to_dict(orient="records")
-
-    exporter = DashboardExporter(output_dir=out_dir)
-    exporter.export(equity_values, trades_rows, float(initial_capital))
+    # [FIX] Strategy writes its own CSVs above.
+    # We do NOT want to use the generic DashboardExporter to overwrite them
+    # because the generic exporter might produce inferior or empty results.
+    log(f"[DEBUG] CSVs handled by strategy native export. Skipping DashboardExporter.")
+    return
 
 def run_pipeline(
     csv_paths: List[str],
@@ -539,10 +505,48 @@ def run_pipeline(
     if log is None:
         log = print
 
-    params = (run_config.get("params") or {})
+    # Initialize params from run_config or defaults
+    params = run_config.get("params", {}).copy()
+    
+    # Fill missing with defaults from META
+    for k, v in STRATEGY_META.get("params", {}).items():
+        if k not in params:
+            params[k] = v.get("default")
 
-    start_date = parse_date(params.get("start_date", STRATEGY_META["params"]["start_date"]["default"]))
-    end_date = parse_date(params.get("end_date", STRATEGY_META["params"]["end_date"]["default"]))
+    # MERGE: run_config top-level keys should override/augment params for dashboard compatibility
+    # [FIX] Iterate over ALL defined params, not just a hardcoded list
+    for k in STRATEGY_META.get("params", {}).keys():
+        if k in run_config:
+            params[k] = run_config[k]
+
+    log(f"[DEBUG] Final Strategy Params: {params}")
+
+    today = pd.Timestamp.now()
+    
+    # 1. Determine End Date: Use params["end_date"] if present, else Today
+    # 1. Determine End Date:
+    user_params = run_config.get("params", {})
+    if "end_date" in user_params:
+        end_date = parse_date(user_params["end_date"])
+    elif "years" in run_config:
+        # If using 'years' horizon, default end date to NOW (so we look back from today)
+        end_date = pd.Timestamp.now()
+    else:
+        # Fallback to params (which includes defaults)
+        end_date = parse_date(params.get("end_date", "2025-01-01"))
+
+    # 2. Determine Start Date:
+    if "start_date" in user_params:
+        start_date = parse_date(user_params["start_date"])
+    elif "years" in run_config:
+        years_horizon = float(run_config.get("years", 2.0))
+        days_horizon = int(years_horizon * 365)
+        start_date = end_date - pd.Timedelta(days=days_horizon)
+        log(f"[DEBUG] Using Data Horizon: {years_horizon} years -> {start_date.date()} to {end_date.date()}")
+    else:
+        start_date = parse_date(params.get("start_date", "2023-01-01"))
+    
+    log(f"[DEBUG] Date Range: {start_date} -> {end_date}")
 
     initial_capital = float(run_config.get("initial_capital", 10_000.0))
     commission_rate = float(run_config.get("commission_rate", 0.0002))
@@ -560,8 +564,8 @@ def run_pipeline(
 
     trailing_stop_pct = float(params.get("trailing_stop", 0.0))
     print_trades = bool(params.get("print_trades", False))
-
-    log("Step 1/3: Converting CSV -> BIN (strategy side) ...")
+    
+    log(f"Step 1/3: Converting CSV -> BIN (strategy side) ...")
     bin_path = os.path.join(out_dir, "data_tickrecord.bin")
     prepare_data(csv_paths, run_config, asset, bin_path, log=log)
 
@@ -591,7 +595,7 @@ def run_pipeline(
         basket_summary = pd.DataFrame([])
         trade_log = pd.DataFrame([])
         equity_curve = pd.DataFrame([])
-        export_csvs_and_dashboard(out_dir, basket_summary, trade_log, equity_curve, initial_capital)
+        export_csvs_and_dashboard(out_dir, basket_summary, trade_log, equity_curve, initial_capital, log=log)
         log("Backtest finished (no trades).")
         return {
             "basket_summary": os.path.join(out_dir, "basket_summary.csv"),
@@ -652,7 +656,7 @@ def run_pipeline(
         initial_capital=initial_capital,
     )
 
-    export_csvs_and_dashboard(out_dir, basket_summary, trade_log, eq_df, initial_capital)
+    export_csvs_and_dashboard(out_dir, basket_summary, trade_log, eq_df, initial_capital, log=log)
 
     final_equity = float(eq_df["total_equity"].iloc[-1]) if not eq_df.empty else initial_capital
     sharpe, sortino = sharpe_sortino_from_daily_equity(eq_df)
@@ -705,3 +709,4 @@ class StrategyImpl(Strategy):
 
     def on_end(self) -> None:
         pass
+
