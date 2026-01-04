@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -142,6 +141,11 @@ def prepare_data(
     if log is None:
         log = lambda s: None
 
+    # [OPTIMIZATION] Check if BIN already exists to save time
+    if os.path.exists(out_bin_path) and os.path.getsize(out_bin_path) > 0:
+        log(f"[BIN] Cache found at {out_bin_path}. Skipping generation.")
+        return out_bin_path
+
     if not csv_paths:
         raise ValueError("No CSV files provided")
 
@@ -182,7 +186,7 @@ def prepare_data(
 
 
 # ============================
-# Strategy logic (UNCHANGED)
+# Strategy logic 
 # ============================
 
 def resample_to_5min(df_1m: pd.DataFrame) -> pd.DataFrame:
@@ -481,7 +485,7 @@ def export_csvs_and_dashboard(
     log(f"[CSV] trade_log      -> {tl_path}")
     log(f"[CSV] equity_curve   -> {eq_path}")
 
-    # [FIX] Strategy writes its own CSVs above.
+    # Strategy writes its own CSVs above.
     # We do NOT want to use the generic DashboardExporter to overwrite them
     # because the generic exporter might produce inferior or empty results.
     log(f"[DEBUG] CSVs handled by strategy native export. Skipping DashboardExporter.")
@@ -565,13 +569,36 @@ def run_pipeline(
     trailing_stop_pct = float(params.get("trailing_stop", 0.0))
     print_trades = bool(params.get("print_trades", False))
     
-    log(f"Step 1/3: Converting CSV -> BIN (strategy side) ...")
-    bin_path = os.path.join(out_dir, "data_tickrecord.bin")
-    prepare_data(csv_paths, run_config, asset, bin_path, log=log)
+    # --- Step 1: Data Prep (BIN) ---
+    log("Step 1/3: Using LOCAL DATASET (Skip Upload) ...")
+    # This avoids uploading large files and potential thread-lock issues
+    local_data_path = r"C:\Users\ASUS\Desktop\BacktestingEngine_2.0\datasets\EURUSD_M1.csv"
+    
+    if not os.path.exists(local_data_path):
+        log(f"[ERROR] Local data file not found at: {local_data_path}")
+        return {}
 
-    log("Step 2/3: Running RSI backtest ...")
-    df_1m = load_eurusd_csv(csv_paths[0])
+    # [NEW] Generate BIN as requested (real conversion)
+    bin_path = os.path.join(out_dir, "data_tickrecord.bin")
+    log("Step 1.5/3: Generating BIN file (for C++ Engine Compatibility)...")
+    try:
+        prepare_data(
+            csv_paths=[local_data_path],
+            run_config=run_config,
+            asset=asset,
+            out_bin_path=bin_path,
+            log=log
+        )
+    except Exception as e:
+        log(f"[WARN] BIN generation failed: {e}. Continuing with CSV backtest...")
+
+    log(f"Step 2/3: Loading from {local_data_path} ...")
+    print("[DEBUG_STRAT] About to load CSV...", flush=True)
+    # [FIX] Load LOCAL file, ignore the uploaded one
+    df_1m = load_eurusd_csv(local_data_path)
+    print(f"[DEBUG_STRAT] CSV Loaded. Shape: {df_1m.shape}. Resampling...", flush=True)
     df_5m = resample_to_5min(df_1m)
+    print(f"[DEBUG_STRAT] Resampled. Shape: {df_5m.shape}. Running Strategy...", flush=True)
 
     trades = run_rsi_timewindow_strategy(
         df_5m=df_5m,
@@ -589,6 +616,7 @@ def run_pipeline(
         trailing_stop_pct=trailing_stop_pct,
         print_trades=print_trades,
     )
+    print(f"[DEBUG_STRAT] Strategy Done. Trades: {len(trades)}. Exporting...", flush=True)
 
     if trades.empty:
         # still export empty CSVs so dashboard doesn't crash
@@ -648,7 +676,7 @@ def run_pipeline(
     trade_log = pd.DataFrame(tl_rows).sort_values("timestamp").reset_index(drop=True)
 
     # ============================
-    # Build equity_curve.csv (same as your script)
+    # Build equity_curve.csv 
     # ============================
     eq_df = compute_daily_equity_from_trade_pnls(
         trade_exits=trades["exit_time"],
@@ -709,4 +737,3 @@ class StrategyImpl(Strategy):
 
     def on_end(self) -> None:
         pass
-
