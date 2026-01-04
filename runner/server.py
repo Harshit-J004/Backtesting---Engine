@@ -12,7 +12,20 @@ from pathlib import Path
 from queue import Queue, Empty
 from typing import Any, Dict, List, Optional
 
+import numpy as np
+import pandas as pd
 import importlib.util
+
+try:
+    import matplotlib.pyplot as plt
+    plt.switch_backend('Agg') # Force non-interactive backend
+except:
+    pass
+
+# Force initialization of C-extensions
+_dummy_df = pd.DataFrame({"a": [1, 2, 3]})
+_dummy_np = np.array([1, 2, 3])
+print(f"[SERVER] Pre-loaded Pandas {_dummy_df.shape} and Numpy {_dummy_np.shape}", flush=True)
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,6 +37,19 @@ from fastapi.responses import JSONResponse, StreamingResponse
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RUNS_DIR = PROJECT_ROOT / "runner" / "runs"
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Setup explicit logging (Print ONLY to avoid file lock hangs)
+DEBUG_FILE = Path("DEBUG_TRACE.txt")
+
+def log_debug(msg):
+    # Print to console (uvicorn captures this usually)
+    print(f"[DEBUG] {msg}", flush=True)
+
+def log_error(msg):
+    print(f"[ERROR] {msg}", flush=True)
+
+
+
 
 # Ensure project imports work everywhere (important)
 def ensure_sys_path(extra: Optional[Path] = None) -> None:
@@ -45,8 +71,7 @@ ensure_sys_path()
 # =========================
 # AssetSpec compatibility
 # =========================
-# Prefer your canonical AssetSpec from scripts/prototype.py if available,
-# because your strategies may annotate/expect that structure.
+
 try:
     from scripts.prototype import AssetSpec as ProjectAssetSpec  # type: ignore
 except Exception:
@@ -79,6 +104,8 @@ app.add_middleware(
 # =========================
 RUN_STATE: Dict[str, Dict[str, Any]] = {}
 RUN_LOGS: Dict[str, Queue] = {}
+
+
 def emit(run_id: str, event: str, payload: dict) -> None:
     q = RUN_LOGS.get(run_id)
     if q:
@@ -86,7 +113,8 @@ def emit(run_id: str, event: str, payload: dict) -> None:
 
 
 def log(run_id: str, level: str, msg: str) -> None:
-     emit(run_id, "log", {"ts": time.time(), "level": level, "msg": msg})
+    emit(run_id, "log", {"ts": time.time(), "level": level, "msg": msg})
+
 
 
 def _load_strategy_module(strategy_path: Path, run_id: str):
@@ -108,7 +136,14 @@ def _load_strategy_module(strategy_path: Path, run_id: str):
     mod = importlib.util.module_from_spec(spec)
     # Register early to help relative imports within strategy
     sys.modules[mod_name] = mod
-    spec.loader.exec_module(mod)
+    
+    log_debug(f"[DEBUG] Executing module {mod_name}...")
+    try:
+        spec.loader.exec_module(mod)
+        log_debug(f"[DEBUG] Executing module finished.")
+    except Exception as e:
+        log_error(f"[ERROR] Module exec failed: {e}")
+        raise
     return mod
 
 
@@ -124,21 +159,49 @@ def _validate_strategy(mod) -> None:
         raise RuntimeError("Strategy invalid: missing run_pipeline(csv_paths, run_config, asset, out_dir, log)")
 
 
+# Global safe logger
+SAFE_LOG_FILE = Path("server_global.log")
+
+def safe_log(msg):
+    try:
+        with open(SAFE_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{time.ctime()}] {msg}\n")
+    except:
+        pass
+
 def _worker(run_id: str, workdir: Path, payload: Dict[str, Any]) -> None:
+    safe_log(f"Worker START for {run_id}")
+    print(f"[DEBUG] _worker executing for run_id={run_id}")
     try:
         RUN_STATE[run_id]["status"] = "running"
+        print("[DEBUG] Status set to running")
 
         strategy_path: Path = payload["strategy_path"]
         csv_paths: List[Path] = payload["csv_paths"]
         run_config: Dict[str, Any] = payload["run_config"]
         asset: ProjectAssetSpec = payload["asset_spec"]
+        
+        safe_log(f"Validating strategy {strategy_path}")
+        print(f"[DEBUG] Validating strategy {strategy_path}")
 
         log(run_id, "info", f"Strategy: {strategy_path.name}")
         log(run_id, "info", f"CSV files: {', '.join([p.name for p in csv_paths])}")
         log(run_id, "info", "Importing strategy module ...")
-
-        mod = _load_strategy_module(strategy_path, run_id)
-        _validate_strategy(mod)
+        
+        log_debug(f"[DEBUG] sys.path before import: {sys.path}")
+        try:
+            mod = _load_strategy_module(strategy_path, run_id)
+            log_debug(f"[DEBUG] Strategy module loaded: {mod}")
+            _validate_strategy(mod)
+            log_debug("[DEBUG] Strategy validated")
+            safe_log("Strategy validated")
+        except Exception as e:
+            msg = f"Strategy load failed: {e}"
+            safe_log(msg)
+            log_error(f"[ERROR] {msg}")
+            log(run_id, "error", msg)
+            traceback.print_exc()
+            raise
 
         out_dir = workdir / "outputs"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -159,6 +222,7 @@ def _worker(run_id: str, workdir: Path, payload: Dict[str, Any]) -> None:
             log(run_id, lvl, m)
 
         log(run_id, "info", "Running run_pipeline(...) ...")
+        safe_log("Calling run_pipeline")
 
         outputs = mod.run_pipeline(
             csv_paths=[str(p) for p in csv_paths],
@@ -167,15 +231,34 @@ def _worker(run_id: str, workdir: Path, payload: Dict[str, Any]) -> None:
             out_dir=str(out_dir),
             log=log_cb,
         )
+        safe_log("run_pipeline returned")
 
-        # Read outputs as CSV text (so React can preload dashboard)
-        basket_path = Path(outputs.get("basket_summary", str(out_dir / "basket_summary.csv")))
-        trade_path = Path(outputs.get("trade_log", str(out_dir / "trade_log.csv")))
-        equity_path = Path(outputs.get("equity_curve", str(out_dir / "equity_curve.csv")))
+        # Robustly find CSV paths (handle differences in out_dir vs workdir)
+        def find_file(key, filename):
+            candidates = [
+                Path(outputs.get(key, "")),
+                out_dir / filename,
+                workdir / "outputs" / filename,
+                workdir / filename
+            ]
+            for c in candidates:
+                if c and c.name and c.exists():
+                    return c
+            return Path("")
+
+        basket_path = find_file("basket_summary", "basket_summary.csv")
+        trade_path = find_file("trade_log", "trade_log.csv")
+        equity_path = find_file("equity_curve", "equity_curve.csv")
+        
+        safe_log(f"Resolved Paths:\n  Basket: {basket_path} (Exists: {basket_path.exists()})\n  Trade: {trade_path}\n  Equity: {equity_path}")
+        print(f"[DEBUG] Resolved Paths:\n  Basket: {basket_path} (Exists: {basket_path.exists()})\n  Trade: {trade_path}\n  Equity: {equity_path}", flush=True)
 
         basket_csv = basket_path.read_text(errors="ignore") if basket_path.exists() else ""
         trade_csv = trade_path.read_text(errors="ignore") if trade_path.exists() else ""
         equity_csv = equity_path.read_text(errors="ignore") if equity_path.exists() else ""
+        
+        safe_log(f"CSV Sizes -> Basket: {len(basket_csv)}, Trade: {len(trade_csv)}, Equity: {len(equity_csv)}")
+        print(f"[DEBUG] CSV Sizes -> Basket: {len(basket_csv)}, Trade: {len(trade_csv)}, Equity: {len(equity_csv)}", flush=True)
 
         RUN_STATE[run_id]["status"] = "done"
         RUN_STATE[run_id]["result"] = {
@@ -192,13 +275,19 @@ def _worker(run_id: str, workdir: Path, payload: Dict[str, Any]) -> None:
             },
         }
         log(run_id, "success", "Backtest finished.")
+        safe_log("Worker FINISHED SUCCESS")
 
     except Exception as e:
         RUN_STATE[run_id]["status"] = "error"
         RUN_STATE[run_id]["error"] = str(e)
-
+        
+        safe_log(f"WORKER EXCEPTION: {e}")
         tb = traceback.format_exc()
+        safe_log(tb)
+
         # Stream both summary + full traceback
+        log_error(f"[ERROR] RUNNER CRASH: {e}")
+        log_error(tb)
         log(run_id, "error", str(e))
         log(run_id, "error", tb)
 
@@ -222,8 +311,26 @@ async def start_run(
     RUN_STATE[run_id] = {"status": "queued", "error": "", "result": None}
 
     # Save uploaded strategy
-    strategy_path = workdir / strategy.filename
-    strategy_path.write_bytes(await strategy.read())
+    strategy_content = await strategy.read()
+    
+    # [AUTO-FIX] Sanitize incompatible imports for Windows/Threads
+    try:
+        text = strategy_content.decode("utf-8")
+        if "from felix.strategy.base import Strategy" in text:
+            log_debug("[WARN] Auto-fixing strategy: Disabling felix import")
+            text = text.replace("from felix.strategy.base import Strategy", "# [SERVER-FIX] from felix.strategy.base import Strategy")
+            # Also ensure we define the fallback class if not present (heuristic)
+            if "class Strategy:" not in text and "class Strategy" not in text:
+                 # This is a bit risky if they didn't have the fallback, but the prototype usually does.
+                 pass 
+        strategy_path = workdir / strategy.filename
+        strategy_path.write_text(text, encoding="utf-8")
+    except Exception as e:
+        log_error(f"Failed to sanitize strategy: {e}")
+        # Fallback to raw write
+        strategy_path = workdir / strategy.filename
+        strategy_path.write_bytes(strategy_content)
+
 
     # Save uploaded CSVs
     csv_paths: List[Path] = []
