@@ -278,7 +278,11 @@ export default function TradingBacktestAnalysis({ preloadedCsv = null }) {
       }
       map[key].pnl += Number(b.net_pnl) || 0;
     });
-    return Object.values(map);
+    // Sort chronologically
+    return Object.values(map).sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.month - b.month;
+    });
   }, [basketData]);
 
   // simple performance metrics from equity curve (approx)
@@ -351,17 +355,15 @@ export default function TradingBacktestAnalysis({ preloadedCsv = null }) {
           <div className="flex items-center gap-3">
             <div className="inline-flex rounded-full border bg-white p-1">
               <button
-                className={`px-4 py-2 rounded-full text-sm font-semibold ${
-                  view === "dashboard" ? "bg-gray-900 text-white" : "text-gray-700"
-                }`}
+                className={`px-4 py-2 rounded-full text-sm font-semibold ${view === "dashboard" ? "bg-gray-900 text-white" : "text-gray-700"
+                  }`}
                 onClick={() => setView("dashboard")}
               >
                 Dashboard
               </button>
               <button
-                className={`px-4 py-2 rounded-full text-sm font-semibold ${
-                  view === "tables" ? "bg-gray-900 text-white" : "text-gray-700"
-                }`}
+                className={`px-4 py-2 rounded-full text-sm font-semibold ${view === "tables" ? "bg-gray-900 text-white" : "text-gray-700"
+                  }`}
                 onClick={() => setView("tables")}
               >
                 Tables
@@ -371,7 +373,7 @@ export default function TradingBacktestAnalysis({ preloadedCsv = null }) {
             <label className="inline-flex items-center gap-2 px-4 py-2 rounded-full border bg-white hover:bg-gray-50 cursor-pointer">
               <Upload className="w-4 h-4 text-gray-600" />
               <span className="text-sm font-semibold text-gray-800">Import/Replace CSVs</span>
-              <input type="file" accept=".csv" className="hidden" onChange={() => {}} />
+              <input type="file" accept=".csv" className="hidden" onChange={() => { }} />
               {/* We keep single import button; uploads happen below in tables view */}
             </label>
           </div>
@@ -407,9 +409,8 @@ export default function TradingBacktestAnalysis({ preloadedCsv = null }) {
                 {["basket_summary", "trade_log", "equity_curve"].map((k) => (
                   <button
                     key={k}
-                    className={`px-4 py-2 rounded-full text-sm font-semibold ${
-                      tab === k ? "bg-gray-900 text-white" : "text-gray-700"
-                    }`}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold ${tab === k ? "bg-gray-900 text-white" : "text-gray-700"
+                      }`}
                     onClick={() => setTab(k)}
                   >
                     {k}
@@ -430,9 +431,8 @@ export default function TradingBacktestAnalysis({ preloadedCsv = null }) {
                 <button
                   key={t.id}
                   onClick={() => setTab(t.id)}
-                  className={`px-4 py-2 rounded-full border text-sm font-semibold ${
-                    tab === t.id ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 hover:bg-gray-50"
-                  }`}
+                  className={`px-4 py-2 rounded-full border text-sm font-semibold ${tab === t.id ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 hover:bg-gray-50"
+                    }`}
                 >
                   {t.label}
                 </button>
@@ -578,9 +578,11 @@ export default function TradingBacktestAnalysis({ preloadedCsv = null }) {
                         className="p-3 rounded-xl text-center text-white font-semibold"
                         style={{
                           backgroundColor:
-                            m.pnl >= 0
-                              ? `rgba(16, 185, 129, ${Math.min(Math.abs(m.pnl) / 500, 1)})`
-                              : `rgba(239, 68, 68, ${Math.min(Math.abs(m.pnl) / 500, 1)})`,
+                            m.pnl === 0
+                              ? "#94a3b8" // slate-400 for zero
+                              : m.pnl > 0
+                                ? `rgba(16, 185, 129, ${Math.max(0.4, Math.min(Math.abs(m.pnl) / 500, 1))})`
+                                : `rgba(239, 68, 68, ${Math.max(0.4, Math.min(Math.abs(m.pnl) / 500, 1))})`,
                         }}
                       >
                         <div className="text-xs opacity-90">{m.monthName} {m.year}</div>
