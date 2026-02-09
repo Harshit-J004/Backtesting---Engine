@@ -1,524 +1,690 @@
-import React, { useState, useEffect } from 'react';
-import { LineChart, Line, BarChart, Bar, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart, Cell } from 'recharts';
-import { Upload, TrendingUp, TrendingDown, DollarSign, Clock, AlertCircle } from 'lucide-react';
+// src/components/TradingBacktestAnalysis.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  Brush,
+  CartesianGrid,
+  Cell,
+  Legend,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { Upload, DollarSign, TrendingUp, TrendingDown, Clock } from "lucide-react";
 
-const TradingBacktestAnalysis = () => {
-    const [basketData, setBasketData] = useState([]);
-    const [tradeData, setTradeData] = useState([]);
-    const [equityData, setEquityData] = useState([]);
-    const [activeTab, setActiveTab] = useState('overview');
+function parseCsvText(text) {
+  const t = (text || "").replace(/^\uFEFF/, "").trim();
+  if (!t) return [];
+  const rows = t.split(/\r?\n/).filter((r) => r.trim().length);
+  if (rows.length < 2) return [];
+  const headers = rows[0].split(",").map((h) => h.trim());
+  return rows.slice(1).map((row) => {
+    const values = row.split(",");
+    const obj = {};
+    headers.forEach((h, i) => (obj[h] = (values[i] ?? "").trim()));
+    return obj;
+  });
+}
 
-    const handleFileUpload = (event, dataType) => {
-        const file = event.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const text = e.target.result;
-                const rows = text.split('\n');
-                const headers = rows[0].split(',');
-                const data = rows.slice(1).filter(row => row.trim()).map(row => {
-                    const values = row.split(',');
-                    const obj = {};
-                    headers.forEach((header, idx) => {
-                        obj[header.trim()] = values[idx]?.trim();
-                    });
-                    return obj;
-                });
+function compactMoney(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "-";
+  const abs = Math.abs(x);
+  if (abs >= 1_000_000_000) return `${(x / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `${(x / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${(x / 1_000).toFixed(2)}K`;
+  return x.toFixed(2);
+}
 
-                if (dataType === 'basket') setBasketData(data);
-                else if (dataType === 'trade') setTradeData(data);
-                else if (dataType === 'equity') setEquityData(data);
-            };
-            reader.readAsText(file);
-        }
-    };
+function formatDuration(seconds) {
+  const s = Number(seconds);
+  if (!Number.isFinite(s)) return "-";
+  if (s < 60) return `${s.toFixed(1)}s`;
+  if (s < 3600) return `${(s / 60).toFixed(1)}m`;
+  return `${(s / 3600).toFixed(1)}h`;
+}
 
-    const verifyCommissionSlippage = () => {
-        if (tradeData.length === 0) return null;
+function DataTable({ rows, label }) {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 25;
 
-        const analysis = tradeData.map(trade => {
-            const lotSize = parseFloat(trade.lot_size);
-            const slippagePips = parseFloat(trade.slippage_pips);
+  const cols = useMemo(() => Object.keys(rows?.[0] || {}), [rows]);
 
-            // Commission: Crypto Standard (0.02% per side = ~0.04% round trip)
-            // Estimation: LotSize * Price (~$40k avg) * 0.0004
-            // Since we don't have exact price here, we use a conservative $40k BTC avg
-            const avgBtcPrice = 40000;
-            const expectedCommission = (lotSize * avgBtcPrice) * 0.0004;
-
-            // Slippage cost per pip per lot
-            const slippageCost = Math.abs(slippagePips) * lotSize * 100000 * 0.0001;
-
-            return {
-                ...trade,
-                lotSize,
-                slippagePips,
-                expectedCommission,
-                slippageCost
-            };
-        });
-
-        return analysis;
-    };
-
-    const calculateStats = () => {
-        if (basketData.length === 0) return null;
-
-        const netPnls = basketData.map(b => parseFloat(b.net_pnl));
-        // Use duration_seconds if available, else fallback to minutes * 60
-        const durations = basketData.map(b => {
-            if (b.duration_seconds) return parseFloat(b.duration_seconds);
-            return parseFloat(b.duration_minutes || 0) * 60;
-        });
-
-        const wins = netPnls.filter(p => p > 0);
-        const losses = netPnls.filter(p => p <= 0);
-
-        const totalPnl = netPnls.reduce((a, b) => a + b, 0);
-        const avgWin = wins.length > 0 ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
-        const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
-        const winRate = (wins.length / netPnls.length) * 100;
-
-        const avgDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
-        const maxDuration = Math.max(...durations);
-
-        return {
-            totalPnl,
-            avgWin,
-            avgLoss,
-            winRate,
-            avgDuration, // In seconds
-            maxDuration, // In seconds
-            totalTrades: basketData.length,
-            wins: wins.length,
-            losses: losses.length
-        };
-    };
-
-    // Helper to format duration
-    const formatDuration = (seconds) => {
-        if (seconds < 1) return `${(seconds * 1000).toFixed(0)}ms`;
-        if (seconds < 60) return `${seconds.toFixed(1)}s`;
-        if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
-        return `${(seconds / 3600).toFixed(1)}h`;
-    };
-
-    // Prepare equity curve data
-    const prepareEquityCurve = () => {
-        if (equityData.length === 0) return [];
-
-        let runningEquity = parseFloat(equityData[0].capital) || 10000;
-        let peak = runningEquity;
-
-        return equityData.map((row, idx) => {
-            const equity = parseFloat(row.total_equity) || runningEquity;
-            peak = Math.max(peak, equity);
-            const drawdown = ((equity - peak) / peak) * 100;
-
-            return {
-                date: row.date,
-                equity: equity,
-                drawdown: drawdown,
-                peak: peak
-            };
-        });
-    };
-
-    // Prepare PnL distribution
-    const preparePnLDistribution = () => {
-        if (basketData.length === 0) return [];
-
-        const bins = {};
-        const binSize = 50;
-
-        basketData.forEach(basket => {
-            const pnl = parseFloat(basket.net_pnl);
-            const bin = Math.floor(pnl / binSize) * binSize;
-            bins[bin] = (bins[bin] || 0) + 1;
-        });
-
-        return Object.entries(bins)
-            .map(([bin, count]) => ({
-                range: `${bin} to ${parseInt(bin) + binSize}`,
-                binStart: parseInt(bin),
-                count
-            }))
-            .sort((a, b) => a.binStart - b.binStart);
-    };
-
-    // Monthly returns heatmap data
-    const prepareMonthlyReturns = () => {
-        if (basketData.length === 0) return [];
-
-        const monthlyData = {};
-
-        basketData.forEach(basket => {
-            const date = new Date(basket.date);
-            const year = date.getFullYear();
-            const month = date.getMonth();
-            const key = `${year}-${month}`;
-
-            if (!monthlyData[key]) {
-                monthlyData[key] = {
-                    year,
-                    month,
-                    monthName: date.toLocaleString('default', { month: 'short' }),
-                    pnl: 0
-                };
-            }
-
-            monthlyData[key].pnl += parseFloat(basket.net_pnl);
-        });
-
-        return Object.values(monthlyData);
-    };
-
-    const stats = calculateStats();
-    const equityCurve = prepareEquityCurve();
-    const pnlDistribution = preparePnLDistribution();
-    const monthlyReturns = prepareMonthlyReturns();
-    const commissionAnalysis = verifyCommissionSlippage();
-
-    const tabs = [
-        { id: 'overview', label: 'Overview' },
-        { id: 'equity', label: 'Equity & Drawdown' },
-        { id: 'distribution', label: 'P&L Distribution' },
-        { id: 'monthly', label: 'Monthly Returns' },
-        { id: 'verification', label: 'Cost Verification' }
-    ];
-
-    return (
-        <div className="w-full max-w-7xl mx-auto p-6 bg-gray-50">
-            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-                <h1 className="text-4xl font-bold mb-8 text-center text-gray-800">Trading Backtest Analysis Dashboard</h1>
-
-                {/* File Upload Section */}
-                <div className="grid grid-cols-1 gap-6 mb-8">
-                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-10 hover:border-blue-500 transition-colors group cursor-pointer">
-                        <label className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
-                            <Upload className="w-12 h-12 text-gray-300 group-hover:text-blue-500 mb-4 transition-colors" />
-                            <span className="text-xl font-medium text-gray-600 mb-2">Upload Basket Summary</span>
-                            <span className="text-sm text-gray-400">
-                                {basketData.length > 0 ? `✓ ${basketData.length} records loaded` : 'basket_summary_realistic.csv'}
-                            </span>
-                            <input
-                                type="file"
-                                accept=".csv"
-                                onChange={(e) => handleFileUpload(e, 'basket')}
-                                className="hidden"
-                            />
-                        </label>
-                    </div>
-
-                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-10 hover:border-blue-500 transition-colors group cursor-pointer">
-                        <label className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
-                            <Upload className="w-12 h-12 text-gray-300 group-hover:text-blue-500 mb-4 transition-colors" />
-                            <span className="text-xl font-medium text-gray-600 mb-2">Upload Trade Log</span>
-                            <span className="text-sm text-gray-400">
-                                {tradeData.length > 0 ? `✓ ${tradeData.length} records loaded` : 'trade_log_realistic.csv'}
-                            </span>
-                            <input
-                                type="file"
-                                accept=".csv"
-                                onChange={(e) => handleFileUpload(e, 'trade')}
-                                className="hidden"
-                            />
-                        </label>
-                    </div>
-
-                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-10 hover:border-blue-500 transition-colors group cursor-pointer">
-                        <label className="flex flex-col items-center justify-center cursor-pointer w-full h-full">
-                            <Upload className="w-12 h-12 text-gray-300 group-hover:text-blue-500 mb-4 transition-colors" />
-                            <span className="text-xl font-medium text-gray-600 mb-2">Upload Equity Curve</span>
-                            <span className="text-sm text-gray-400">
-                                {equityData.length > 0 ? `✓ ${equityData.length} records loaded` : 'equity_curve_realistic.csv'}
-                            </span>
-                            <input
-                                type="file"
-                                accept=".csv"
-                                onChange={(e) => handleFileUpload(e, 'equity')}
-                                className="hidden"
-                            />
-                        </label>
-                    </div>
-                </div>
-
-                {/* Tabs */}
-                <div className="flex justify-center border-b border-gray-200 mb-8 overflow-x-auto">
-                    {tabs.map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`px-6 py-4 text-lg font-medium transition-colors whitespace-nowrap ${activeTab === tab.id
-                                ? 'border-b-4 border-blue-500 text-blue-600'
-                                : 'text-gray-500 hover:text-gray-800'
-                                }`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Content */}
-                {activeTab === 'overview' && stats && (
-                    <div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                            <div className="bg-blue-50 p-4 rounded-lg">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm text-gray-600">Total P&L</span>
-                                    <DollarSign className="w-5 h-5 text-blue-600" />
-                                </div>
-                                <div className={`text-2xl font-bold ${stats.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    ${stats.totalPnl.toFixed(2)}
-                                </div>
-                            </div>
-
-                            <div className="bg-green-50 p-4 rounded-lg">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm text-gray-600">Win Rate</span>
-                                    <TrendingUp className="w-5 h-5 text-green-600" />
-                                </div>
-                                <div className="text-2xl font-bold text-green-600">
-                                    {stats.winRate.toFixed(1)}%
-                                </div>
-                                <div className="text-xs text-gray-500 mt-1">
-                                    {stats.wins}W / {stats.losses}L
-                                </div>
-                            </div>
-
-                            <div className="bg-purple-50 p-4 rounded-lg">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm text-gray-600">Avg Duration</span>
-                                    <Clock className="w-5 h-5 text-purple-600" />
-                                </div>
-                                <div className="text-2xl font-bold text-purple-600">
-                                    {formatDuration(stats.avgDuration)}
-                                </div>
-                                <div className="text-xs text-gray-500 mt-1">
-                                    Max: {formatDuration(stats.maxDuration)}
-                                </div>
-                            </div>
-
-                            <div className="bg-orange-50 p-4 rounded-lg">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm text-gray-600">Avg Win/Loss</span>
-                                    <TrendingDown className="w-5 h-5 text-orange-600" />
-                                </div>
-                                <div className="text-sm font-bold text-green-600">
-                                    Win: ${stats.avgWin.toFixed(2)}
-                                </div>
-                                <div className="text-sm font-bold text-red-600">
-                                    Loss: ${stats.avgLoss.toFixed(2)}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                            <h3 className="font-semibold mb-2">Key Metrics</h3>
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                                <div>Total Trades: <span className="font-semibold">{stats.totalTrades}</span></div>
-                                <div>Win/Loss Ratio: <span className="font-semibold">{(Math.abs(stats.avgWin / stats.avgLoss)).toFixed(2)}</span></div>
-                                <div>Expectancy: <span className="font-semibold">${((stats.avgWin * stats.winRate / 100) + (stats.avgLoss * (1 - stats.winRate / 100))).toFixed(2)}</span></div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'equity' && (
-                    <div className="space-y-6">
-                        <div>
-                            <h3 className="text-lg font-semibold mb-4">Equity Curve</h3>
-                            <ResponsiveContainer width="100%" height={300}>
-                                <AreaChart data={equityCurve}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis
-                                        dataKey="date"
-                                        tick={{ fontSize: 12 }}
-                                        angle={-45}
-                                        textAnchor="end"
-                                        height={80}
-                                    />
-                                    <YAxis />
-                                    <Tooltip
-                                        formatter={(value) => `$${value.toFixed(2)}`}
-                                    />
-                                    <Legend />
-                                    <Area
-                                        type="monotone"
-                                        dataKey="equity"
-                                        stroke="#3b82f6"
-                                        fill="#93c5fd"
-                                        name="Equity"
-                                    />
-                                    <Area
-                                        type="monotone"
-                                        dataKey="peak"
-                                        stroke="#10b981"
-                                        fill="none"
-                                        strokeDasharray="5 5"
-                                        name="Peak"
-                                    />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-
-                        <div>
-                            <h3 className="text-lg font-semibold mb-4">Drawdown Curve</h3>
-                            <ResponsiveContainer width="100%" height={300}>
-                                <AreaChart data={equityCurve}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis
-                                        dataKey="date"
-                                        tick={{ fontSize: 12 }}
-                                        angle={-45}
-                                        textAnchor="end"
-                                        height={80}
-                                    />
-                                    <YAxis />
-                                    <Tooltip
-                                        formatter={(value) => `${value.toFixed(2)}%`}
-                                    />
-                                    <Legend />
-                                    <Area
-                                        type="monotone"
-                                        dataKey="drawdown"
-                                        stroke="#ef4444"
-                                        fill="#fca5a5"
-                                        name="Drawdown %"
-                                    />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'distribution' && (
-                    <div className="space-y-6">
-                        <div>
-                            <h3 className="text-lg font-semibold mb-4">P&L Distribution</h3>
-                            <ResponsiveContainer width="100%" height={400}>
-                                <BarChart data={pnlDistribution}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis
-                                        dataKey="range"
-                                        angle={-45}
-                                        textAnchor="end"
-                                        height={100}
-                                        tick={{ fontSize: 10 }}
-                                    />
-                                    <YAxis />
-                                    <Tooltip />
-                                    <Legend />
-                                    <Bar dataKey="count" name="Frequency">
-                                        {pnlDistribution.map((entry, index) => (
-                                            <Cell key={index} fill={entry.binStart >= 0 ? '#10b981' : '#ef4444'} />
-                                        ))}
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-
-                        {basketData.length > 0 && (
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-green-50 p-4 rounded-lg">
-                                    <h4 className="font-semibold text-green-800 mb-2">Winning Trades</h4>
-                                    <div className="text-sm space-y-1">
-                                        <div>Count: {basketData.filter(b => parseFloat(b.net_pnl) > 0).length}</div>
-                                        <div>Total: ${basketData.filter(b => parseFloat(b.net_pnl) > 0).reduce((sum, b) => sum + parseFloat(b.net_pnl), 0).toFixed(2)}</div>
-                                    </div>
-                                </div>
-                                <div className="bg-red-50 p-4 rounded-lg">
-                                    <h4 className="font-semibold text-red-800 mb-2">Losing Trades</h4>
-                                    <div className="text-sm space-y-1">
-                                        <div>Count: {basketData.filter(b => parseFloat(b.net_pnl) <= 0).length}</div>
-                                        <div>Total: ${basketData.filter(b => parseFloat(b.net_pnl) <= 0).reduce((sum, b) => sum + parseFloat(b.net_pnl), 0).toFixed(2)}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {activeTab === 'monthly' && (
-                    <div>
-                        <h3 className="text-lg font-semibold mb-4">Monthly Returns Heatmap</h3>
-                        <div className="overflow-x-auto">
-                            <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))' }}>
-                                {monthlyReturns.map((month, idx) => (
-                                    <div
-                                        key={idx}
-                                        className="p-3 rounded text-center"
-                                        style={{
-                                            backgroundColor: month.pnl > 0
-                                                ? `rgba(16, 185, 129, ${Math.min(Math.abs(month.pnl) / 500, 1)})`
-                                                : `rgba(239, 68, 68, ${Math.min(Math.abs(month.pnl) / 500, 1)})`
-                                        }}
-                                    >
-                                        <div className="text-xs font-semibold text-white">
-                                            {month.monthName} {month.year}
-                                        </div>
-                                        <div className="text-sm font-bold text-white mt-1">
-                                            ${month.pnl.toFixed(0)}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'verification' && commissionAnalysis && (
-                    <div>
-                        <h3 className="text-lg font-semibold mb-4">Commission & Slippage Verification</h3>
-
-                        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
-                            <div className="flex items-start">
-                                <AlertCircle className="w-5 h-5 text-blue-600 mr-2 mt-0.5" />
-                                <div className="text-sm">
-                                    <p className="font-semibold text-blue-800 mb-1">Commission Formula (Crypto Standard):</p>
-                                    <p className="text-blue-700">Round-trip commission = ~0.04% of Notional Value (0.02% Entry + 0.02% Exit)</p>
-                                    <p className="text-blue-700 mt-1">Estimation Used: Lot Size * $40,000 (Avg BTC Price) * 0.0004</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Basket ID</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Trade #</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Lot Size</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Expected Commission</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Slippage (pips)</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Slippage Cost ($)</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {commissionAnalysis.slice(0, 20).map((trade, idx) => (
-                                        <tr key={idx} className="hover:bg-gray-50">
-                                            <td className="px-4 py-2 text-sm">{trade.basket_id}</td>
-                                            <td className="px-4 py-2 text-sm">{trade.trade_num}</td>
-                                            <td className="px-4 py-2 text-sm font-semibold">{trade.lotSize}</td>
-                                            <td className="px-4 py-2 text-sm text-green-600">${trade.expectedCommission.toFixed(2)}</td>
-                                            <td className="px-4 py-2 text-sm">{trade.slippagePips.toFixed(2)}</td>
-                                            <td className="px-4 py-2 text-sm text-orange-600">${trade.slippageCost.toFixed(2)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        {commissionAnalysis.length > 20 && (
-                            <p className="text-sm text-gray-500 mt-4 text-center">
-                                Showing first 20 of {commissionAnalysis.length} trades
-                            </p>
-                        )}
-                    </div>
-                )}
-            </div>
-        </div>
+  const filtered = useMemo(() => {
+    const query = (q || "").toLowerCase().trim();
+    if (!query) return rows || [];
+    return (rows || []).filter((r) =>
+      cols.some((c) => String(r[c] ?? "").toLowerCase().includes(query))
     );
-};
+  }, [rows, q, cols]);
 
-export default TradingBacktestAnalysis;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const p = Math.min(page, totalPages);
+  const start = (p - 1) * pageSize;
+  const pageRows = filtered.slice(start, start + pageSize);
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm text-gray-600">{filtered.length} rows</div>
+        <div className="flex items-center gap-2">
+          <input
+            className="border rounded-lg px-3 py-2 text-sm w-72"
+            placeholder={`Search ${label}...`}
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 overflow-auto border rounded-xl">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 sticky top-0">
+            <tr>
+              {cols.slice(0, 14).map((c) => (
+                <th
+                  key={c}
+                  className="text-left px-3 py-2 font-semibold text-gray-700 whitespace-nowrap"
+                >
+                  {c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.map((r, i) => (
+              <tr key={i} className="border-t">
+                {cols.slice(0, 14).map((c) => (
+                  <td key={c} className="px-3 py-2 whitespace-nowrap">
+                    {String(r[c] ?? "")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {pageRows.length === 0 ? (
+              <tr>
+                <td colSpan={cols.length || 1} className="px-3 py-6 text-center text-gray-500">
+                  No rows to display. (Upload or run a backtest to generate outputs.)
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex items-center justify-between mt-3 text-sm text-gray-600">
+        <div>
+          Page {p} / {totalPages}
+        </div>
+        <div className="flex gap-2">
+          <button
+            className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-50"
+            onClick={() => setPage((x) => Math.max(1, x - 1))}
+            disabled={p <= 1}
+          >
+            Prev
+          </button>
+          <button
+            className="px-3 py-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-50"
+            onClick={() => setPage((x) => Math.min(totalPages, x + 1))}
+            disabled={p >= totalPages}
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function TradingBacktestAnalysis({ preloadedCsv = null }) {
+  const [basketData, setBasketData] = useState([]);
+  const [tradeData, setTradeData] = useState([]);
+  const [equityData, setEquityData] = useState([]);
+
+  const [view, setView] = useState("dashboard"); // dashboard | tables
+  const [tab, setTab] = useState("overview");
+
+  const [eqBrush, setEqBrush] = useState({ startIndex: 0, endIndex: 0 });
+  const [ddBrush, setDdBrush] = useState({ startIndex: 0, endIndex: 0 });
+
+  useEffect(() => {
+    if (!preloadedCsv) return;
+    try {
+      if (preloadedCsv.basketCsv) setBasketData(parseCsvText(preloadedCsv.basketCsv));
+      if (preloadedCsv.tradeCsv) setTradeData(parseCsvText(preloadedCsv.tradeCsv));
+      if (preloadedCsv.equityCsv) setEquityData(parseCsvText(preloadedCsv.equityCsv));
+    } catch (e) {
+      console.error("Failed to preload CSV outputs:", e);
+    }
+  }, [preloadedCsv]);
+
+  const handleFileUpload = (event, type) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const rows = parseCsvText(e.target.result);
+      if (type === "basket") setBasketData(rows);
+      if (type === "trade") setTradeData(rows);
+      if (type === "equity") setEquityData(rows);
+    };
+    reader.readAsText(file);
+  };
+
+  const stats = useMemo(() => {
+    if (!basketData.length) return null;
+    const net = basketData.map((b) => Number(b.net_pnl)).filter(Number.isFinite);
+    if (!net.length) return null;
+
+    const durations = basketData
+      .map((b) => (b.duration_seconds ? Number(b.duration_seconds) : Number(b.duration_minutes || 0) * 60))
+      .filter(Number.isFinite);
+
+    const wins = net.filter((p) => p > 0);
+    const losses = net.filter((p) => p <= 0);
+
+    const totalPnl = net.reduce((a, b) => a + b, 0);
+    const avgWin = wins.length ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
+    const avgLoss = losses.length ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
+    const winRate = (wins.length / net.length) * 100;
+
+    const avgDuration = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
+    const maxDuration = durations.length ? Math.max(...durations) : 0;
+
+    return {
+      totalPnl,
+      avgWin,
+      avgLoss,
+      winRate,
+      avgDuration,
+      maxDuration,
+      totalTrades: net.length,
+      wins: wins.length,
+      losses: losses.length,
+    };
+  }, [basketData]);
+
+  const equityCurve = useMemo(() => {
+    if (!equityData.length) return [];
+    let running = Number(equityData[0].capital) || 10000;
+    let peak = running;
+
+    const curve = equityData.map((row) => {
+      const eq = Number(row.total_equity);
+      const equity = Number.isFinite(eq) ? eq : running;
+      peak = Math.max(peak, equity);
+      const drawdown = ((equity - peak) / peak) * 100;
+      running = equity;
+      return {
+        date: row.date,
+        equity,
+        peak,
+        drawdown,
+      };
+    });
+
+    return curve;
+  }, [equityData]);
+
+  useEffect(() => {
+    if (!equityCurve.length) return;
+    setEqBrush({ startIndex: 0, endIndex: equityCurve.length - 1 });
+    setDdBrush({ startIndex: 0, endIndex: equityCurve.length - 1 });
+  }, [equityCurve.length]);
+
+  const pnlDistribution = useMemo(() => {
+    if (!basketData.length) return [];
+    const binSize = 50;
+    const bins = {};
+    basketData.forEach((b) => {
+      const pnl = Number(b.net_pnl);
+      if (!Number.isFinite(pnl)) return;
+      const bin = Math.floor(pnl / binSize) * binSize;
+      bins[bin] = (bins[bin] || 0) + 1;
+    });
+
+    return Object.entries(bins)
+      .map(([bin, count]) => ({
+        range: `${bin} to ${Number(bin) + binSize}`,
+        binStart: Number(bin),
+        count,
+      }))
+      .sort((a, b) => a.binStart - b.binStart);
+  }, [basketData]);
+
+  const monthlyReturns = useMemo(() => {
+    if (!basketData.length) return [];
+    const map = {};
+    basketData.forEach((b) => {
+      const d = new Date(b.date);
+      if (Number.isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      if (!map[key]) {
+        map[key] = {
+          year: d.getFullYear(),
+          month: d.getMonth(),
+          monthName: d.toLocaleString("default", { month: "short" }),
+          pnl: 0,
+        };
+      }
+      map[key].pnl += Number(b.net_pnl) || 0;
+    });
+    // Sort chronologically
+    return Object.values(map).sort((a, b) => {
+      if (a.year !== b.year) return a.year - b.year;
+      return a.month - b.month;
+    });
+  }, [basketData]);
+
+  // simple performance metrics from equity curve (approx)
+  const perf = useMemo(() => {
+    if (!equityCurve.length) return null;
+    const eq = equityCurve.map((x) => x.equity).filter(Number.isFinite);
+    if (eq.length < 3) return null;
+
+    const rets = [];
+    for (let i = 1; i < eq.length; i++) {
+      const r = (eq[i] - eq[i - 1]) / Math.max(1e-9, eq[i - 1]);
+      if (Number.isFinite(r)) rets.push(r);
+    }
+    if (!rets.length) return null;
+
+    const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+    const vol = Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / Math.max(1, rets.length - 1));
+    const downside = Math.sqrt(
+      rets.filter((r) => r < 0).reduce((s, r) => s + (r - 0) ** 2, 0) / Math.max(1, rets.filter((r) => r < 0).length)
+    );
+
+    const sharpe = vol > 0 ? mean / vol : 0;
+    const sortino = downside > 0 ? mean / downside : 0;
+
+    const start = eq[0];
+    const end = eq[eq.length - 1];
+    const cagr = start > 0 ? (end / start) - 1 : 0;
+
+    // max drawdown
+    let peak = eq[0];
+    let maxDD = 0;
+    for (const v of eq) {
+      peak = Math.max(peak, v);
+      maxDD = Math.min(maxDD, (v - peak) / peak);
+    }
+    const calmar = maxDD !== 0 ? cagr / Math.abs(maxDD) : 0;
+
+    return {
+      sharpe,
+      sortino,
+      cagr,
+      maxDrawdown: maxDD,
+      calmar,
+    };
+  }, [equityCurve]);
+
+  const tabs = [
+    { id: "overview", label: "Overview" },
+    { id: "equity", label: "Equity" },
+    { id: "distribution", label: "Distribution" },
+    { id: "monthly", label: "Monthly" },
+    { id: "costs", label: "Costs" },
+    { id: "metrics", label: "Performance Metrics" },
+  ];
+
+  return (
+    <div className="w-full max-w-7xl mx-auto p-4 bg-gray-50">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm text-gray-500 font-medium">Backtest Analytics</div>
+            <h1 className="text-3xl font-bold text-gray-900 leading-tight">
+              Performance Dashboard
+            </h1>
+            <p className="text-gray-600 mt-2 max-w-xl">
+              Equity, drawdown, distribution and execution metrics — presented in an investor-friendly format.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="inline-flex rounded-full border bg-white p-1">
+              <button
+                className={`px-4 py-2 rounded-full text-sm font-semibold ${view === "dashboard" ? "bg-gray-900 text-white" : "text-gray-700"
+                  }`}
+                onClick={() => setView("dashboard")}
+              >
+                Dashboard
+              </button>
+              <button
+                className={`px-4 py-2 rounded-full text-sm font-semibold ${view === "tables" ? "bg-gray-900 text-white" : "text-gray-700"
+                  }`}
+                onClick={() => setView("tables")}
+              >
+                Tables
+              </button>
+            </div>
+
+            <label className="inline-flex items-center gap-2 px-4 py-2 rounded-full border bg-white hover:bg-gray-50 cursor-pointer">
+              <Upload className="w-4 h-4 text-gray-600" />
+              <span className="text-sm font-semibold text-gray-800">Import/Replace CSVs</span>
+              <input type="file" accept=".csv" className="hidden" onChange={() => { }} />
+              {/* We keep single import button; uploads happen below in tables view */}
+            </label>
+          </div>
+        </div>
+
+        {view === "tables" ? (
+          <div className="mt-6">
+            {/* Upload cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <UploadCard
+                title="Basket Summary"
+                subtitle="Upload basket summary CSV"
+                onUpload={(e) => handleFileUpload(e, "basket")}
+                loaded={basketData.length}
+              />
+              <UploadCard
+                title="Trade Log"
+                subtitle="Upload trade log CSV"
+                onUpload={(e) => handleFileUpload(e, "trade")}
+                loaded={tradeData.length}
+              />
+              <UploadCard
+                title="Equity Curve"
+                subtitle="Upload equity curve CSV"
+                onUpload={(e) => handleFileUpload(e, "equity")}
+                loaded={equityData.length}
+              />
+            </div>
+
+            {/* Tables + paging */}
+            <div className="mt-6">
+              <div className="inline-flex rounded-full border bg-white p-1">
+                {["basket_summary", "trade_log", "equity_curve"].map((k) => (
+                  <button
+                    key={k}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold ${tab === k ? "bg-gray-900 text-white" : "text-gray-700"
+                      }`}
+                    onClick={() => setTab(k)}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+
+              {tab === "basket_summary" ? <DataTable rows={basketData} label="basket_summary" /> : null}
+              {tab === "trade_log" ? <DataTable rows={tradeData} label="trade_log" /> : null}
+              {tab === "equity_curve" ? <DataTable rows={equityData} label="equity_curve" /> : null}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-6">
+            {/* Dashboard tabs */}
+            <div className="flex flex-wrap gap-2">
+              {tabs.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`px-4 py-2 rounded-full border text-sm font-semibold ${tab === t.id ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 hover:bg-gray-50"
+                    }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Overview */}
+            {tab === "overview" && stats ? (
+              <div className="mt-6">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <KpiCard
+                    label="Total P&L"
+                    icon={<DollarSign className="w-4 h-4" />}
+                    value={`${stats.totalPnl < 0 ? "-" : ""}$${compactMoney(Math.abs(stats.totalPnl))}`}
+                    sub={`${stats.totalTrades} baskets`}
+                    negative={stats.totalPnl < 0}
+                  />
+                  <KpiCard
+                    label="Win Rate"
+                    icon={<TrendingUp className="w-4 h-4" />}
+                    value={`${stats.winRate.toFixed(1)}%`}
+                    sub={`${stats.wins}W / ${stats.losses}L`}
+                  />
+                  <KpiCard
+                    label="Avg Duration"
+                    icon={<Clock className="w-4 h-4" />}
+                    value={formatDuration(stats.avgDuration)}
+                    sub={`Max: ${formatDuration(stats.maxDuration)}`}
+                  />
+                  <KpiCard
+                    label="Avg Win / Loss"
+                    icon={<TrendingDown className="w-4 h-4" />}
+                    value={
+                      <div className="text-sm leading-tight">
+                        <div className="text-green-700 font-semibold">+${compactMoney(stats.avgWin)}</div>
+                        <div className="text-red-700 font-semibold">-${compactMoney(Math.abs(stats.avgLoss))}</div>
+                      </div>
+                    }
+                    sub=""
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {/* Equity + Drawdown */}
+            {tab === "equity" ? (
+              <div className="mt-6 space-y-6">
+                <ChartCard
+                  title="Equity Curve"
+                  right={
+                    <button
+                      className="text-sm font-semibold px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
+                      onClick={() => setEqBrush({ startIndex: 0, endIndex: Math.max(0, equityCurve.length - 1) })}
+                    >
+                      Reset zoom
+                    </button>
+                  }
+                >
+                  <ResponsiveContainer width="100%" height={320}>
+                    <AreaChart data={equityCurve} margin={{ left: 18, right: 18, top: 10, bottom: 28 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                      <YAxis
+                        tick={{ fontSize: 12 }}
+                        tickFormatter={(v) => compactMoney(v)}
+                        width={70}
+                      />
+                      <Tooltip formatter={(v) => `$${Number(v).toFixed(2)}`} />
+                      <Legend />
+                      <Area type="monotone" dataKey="equity" name="Equity" />
+                      <Area type="monotone" dataKey="peak" name="Peak" strokeDasharray="5 5" fill="none" />
+                      <Brush
+                        dataKey="date"
+                        startIndex={eqBrush.startIndex}
+                        endIndex={eqBrush.endIndex}
+                        onChange={(r) => r && setEqBrush({ startIndex: r.startIndex, endIndex: r.endIndex })}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+
+                <ChartCard
+                  title="Drawdown Curve"
+                  right={
+                    <button
+                      className="text-sm font-semibold px-3 py-2 rounded-lg border bg-white hover:bg-gray-50"
+                      onClick={() => setDdBrush({ startIndex: 0, endIndex: Math.max(0, equityCurve.length - 1) })}
+                    >
+                      Reset zoom
+                    </button>
+                  }
+                >
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={equityCurve} margin={{ left: 18, right: 18, top: 10, bottom: 28 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} width={70} tickFormatter={(v) => `${Number(v).toFixed(0)}%`} />
+                      <Tooltip formatter={(v) => `${Number(v).toFixed(2)}%`} />
+                      {/* drawdown in red */}
+                      <Area type="monotone" dataKey="drawdown" name="Drawdown %" stroke="#dc2626" fill="#fecaca" />
+                      <Brush
+                        dataKey="date"
+                        startIndex={ddBrush.startIndex}
+                        endIndex={ddBrush.endIndex}
+                        onChange={(r) => r && setDdBrush({ startIndex: r.startIndex, endIndex: r.endIndex })}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              </div>
+            ) : null}
+
+            {/* Distribution */}
+            {tab === "distribution" ? (
+              <div className="mt-6">
+                <ChartCard title="P&L Distribution">
+                  <ResponsiveContainer width="100%" height={380}>
+                    <BarChart data={pnlDistribution} margin={{ left: 18, right: 18, top: 10, bottom: 60 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="range" tick={{ fontSize: 10 }} angle={-45} textAnchor="end" height={90} />
+                      <YAxis tick={{ fontSize: 12 }} width={50} />
+                      <Tooltip />
+                      {/* Remove the black legend block by not rendering Legend */}
+                      <Bar dataKey="count" name="Frequency">
+                        {pnlDistribution.map((e, i) => (
+                          <Cell key={i} fill={e.binStart >= 0 ? "#10b981" : "#ef4444"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              </div>
+            ) : null}
+
+            {/* Monthly heatmap (RESTORED) */}
+            {tab === "monthly" ? (
+              <div className="mt-6">
+                <ChartCard title="Monthly Returns">
+                  <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))" }}>
+                    {monthlyReturns.map((m, i) => (
+                      <div
+                        key={i}
+                        className="p-3 rounded-xl text-center text-white font-semibold"
+                        style={{
+                          backgroundColor:
+                            m.pnl === 0
+                              ? "#94a3b8" // slate-400 for zero
+                              : m.pnl > 0
+                                ? `rgba(16, 185, 129, ${Math.max(0.4, Math.min(Math.abs(m.pnl) / 500, 1))})`
+                                : `rgba(239, 68, 68, ${Math.max(0.4, Math.min(Math.abs(m.pnl) / 500, 1))})`,
+                        }}
+                      >
+                        <div className="text-xs opacity-90">{m.monthName} {m.year}</div>
+                        <div className="text-sm mt-1">${compactMoney(m.pnl)}</div>
+                      </div>
+                    ))}
+                    {monthlyReturns.length === 0 ? (
+                      <div className="text-sm text-gray-500">No monthly data yet.</div>
+                    ) : null}
+                  </div>
+                </ChartCard>
+              </div>
+            ) : null}
+
+            {/* Costs */}
+            {tab === "costs" ? (
+              <div className="mt-6">
+                <ChartCard title="Commission & Slippage">
+                  <p className="text-sm text-gray-700">
+                    If your trade CSV includes additional fields (e.g., realized commission, filled prices),
+                    this section can compute realized costs and execution quality.
+                  </p>
+                </ChartCard>
+              </div>
+            ) : null}
+
+            {/* Performance Metrics tab (ADDED) */}
+            {tab === "metrics" ? (
+              <div className="mt-6">
+                <ChartCard title="Performance Metrics">
+                  {!perf ? (
+                    <div className="text-sm text-gray-500">Not enough equity data to compute metrics.</div>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                      <Metric label="Sharpe (approx)" value={perf.sharpe.toFixed(3)} />
+                      <Metric label="Sortino (approx)" value={perf.sortino.toFixed(3)} />
+                      <Metric label="CAGR (approx)" value={`${(perf.cagr * 100).toFixed(2)}%`} />
+                      <Metric label="Max Drawdown" value={`${(perf.maxDrawdown * 100).toFixed(2)}%`} />
+                      <Metric label="Calmar (approx)" value={perf.calmar.toFixed(3)} />
+                    </div>
+                  )}
+                </ChartCard>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UploadCard({ title, subtitle, onUpload, loaded }) {
+  return (
+    <div className="border rounded-2xl bg-white p-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="font-semibold text-gray-900">{title}</div>
+          <div className="text-sm text-gray-500 mt-1">{subtitle}</div>
+          <div className="text-sm text-gray-500 mt-2">{loaded ? `✓ ${loaded} rows loaded` : ""}</div>
+        </div>
+        <label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-xl border hover:bg-gray-50">
+          <Upload className="w-4 h-4 text-gray-700" />
+          <input type="file" accept=".csv" onChange={onUpload} className="hidden" />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function KpiCard({ label, value, sub, icon, negative }) {
+  return (
+    <div className="border rounded-2xl p-4 bg-white">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-gray-700">{label}</div>
+        <div className="text-gray-500">{icon}</div>
+      </div>
+
+      <div className={`mt-2 text-2xl font-bold ${negative ? "text-red-700" : "text-gray-900"} break-words`}>
+        {value}
+      </div>
+      {sub ? <div className="text-sm text-gray-500 mt-1">{sub}</div> : null}
+    </div>
+  );
+}
+
+function ChartCard({ title, right, children }) {
+  return (
+    <div className="border rounded-2xl p-4 bg-white">
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-semibold text-gray-900">{title}</div>
+        {right ? <div>{right}</div> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div className="border rounded-xl p-3 bg-gray-50">
+      <div className="text-xs font-semibold text-gray-600">{label}</div>
+      <div className="text-lg font-bold text-gray-900 mt-1">{value}</div>
+    </div>
+  );
+}
